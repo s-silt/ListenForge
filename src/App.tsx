@@ -95,7 +95,7 @@ function App() {
         <>
           <span className="font-medium">{t("topbar.appName")}</span>
           <button
-            className="ml-auto border px-2 py-1 text-sm rounded hover:bg-muted"
+            className="ml-auto border border-border px-2 py-1 text-sm rounded bg-background hover:bg-muted transition-colors"
             onClick={pickAndExtract}
             disabled={busy}
             title={t("topbar.openHelper")}
@@ -105,7 +105,7 @@ function App() {
           {project && (
             <>
               <button
-                className="ml-2 border px-2 py-1 text-sm rounded bg-blue-50 hover:bg-blue-100 disabled:opacity-50"
+                className="ml-2 border border-primary/40 px-2 py-1 text-sm rounded bg-primary/10 text-primary hover:bg-primary/20 disabled:opacity-50 transition-colors"
                 onClick={generateAudio}
                 disabled={busy}
                 title={t("topbar.generateHelper")}
@@ -113,7 +113,7 @@ function App() {
                 {generating ? t("topbar.generating") : t("topbar.generate")}
               </button>
               <button
-                className="ml-2 border px-2 py-1 text-sm rounded bg-green-50 hover:bg-green-100 disabled:opacity-50"
+                className="ml-2 border border-border px-2 py-1 text-sm rounded bg-muted hover:bg-secondary disabled:opacity-50 transition-colors"
                 onClick={saveProject}
                 disabled={busy}
               >
@@ -123,7 +123,7 @@ function App() {
           )}
           {/* Language switcher */}
           <button
-            className="ml-2 border px-2 py-1 text-xs rounded hover:bg-muted font-mono"
+            className="ml-2 border border-border px-2 py-1 text-xs rounded bg-background hover:bg-muted font-mono transition-colors"
             onClick={toggleLang}
             title={currentLang === "zh" ? "Switch to English" : "切换到中文"}
           >

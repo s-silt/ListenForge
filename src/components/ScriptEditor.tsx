@@ -207,7 +207,7 @@ function PartBlock({
   const { t } = useTranslation();
 
   return (
-    <div className="rounded-lg border bg-card p-3 shadow-sm">
+    <div className="rounded border bg-card p-3">
       {/* Part header */}
       <div className="mb-2 space-y-1.5">
         {/* label (read-only display) + read_label checkbox */}

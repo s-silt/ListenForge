@@ -120,14 +120,14 @@ export function TemplatePicker() {
       <div className="flex gap-2">
         <button
           onClick={handleApply}
-          className="flex-1 rounded border px-2 py-1 text-xs bg-blue-50 hover:bg-blue-100"
+          className="flex-1 rounded border border-primary/40 px-2 py-1 text-xs bg-primary/10 text-primary hover:bg-primary/20 transition-colors"
         >
           {t("template.apply")}
         </button>
         <button
           onClick={handleSaveAs}
           disabled={savingNew}
-          className="flex-1 rounded border px-2 py-1 text-xs bg-green-50 hover:bg-green-100 disabled:opacity-50"
+          className="flex-1 rounded border border-border px-2 py-1 text-xs bg-muted hover:bg-secondary disabled:opacity-50 transition-colors"
         >
           {savingNew ? t("template.saving") : t("template.saveAs")}
         </button>

@@ -110,7 +110,7 @@ export function AiSettings() {
       <button
         onClick={handleSave}
         disabled={saving}
-        className="w-full rounded border px-2 py-1 text-xs bg-blue-50 hover:bg-blue-100 disabled:opacity-50"
+        className="w-full rounded border border-primary/40 px-2 py-1 text-xs bg-primary/10 text-primary hover:bg-primary/20 disabled:opacity-50 transition-colors"
       >
         {saving ? t("ai.saving") : t("ai.save")}
       </button>
