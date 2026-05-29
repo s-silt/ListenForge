@@ -1,28 +1,26 @@
 import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { listen } from "@tauri-apps/api/event";
-import type { ProgressPayload } from "@/types";
+import { Layout } from "@/components/Layout";
 
 function App() {
   const [status, setStatus] = useState("...");
-  const [progress, setProgress] = useState("");
 
   useEffect(() => {
     invoke<string>("health").then(setStatus);
-    const un = listen<ProgressPayload>("progress", (e) => {
-      setProgress(`${e.payload.current}/${e.payload.total} ${e.payload.message}`);
-    });
-    return () => { un.then((f) => f()); };
   }, []);
 
   return (
-    <div className="p-4 space-y-2">
-      <div>backend health: {status}</div>
-      <button className="border px-2 py-1" onClick={() => invoke("demo_progress")}>
-        run demo
-      </button>
-      <div>progress: {progress}</div>
-    </div>
+    <Layout
+      topBar={
+        <>
+          <span className="font-medium">ListenForge</span>
+          <span className="ml-auto text-xs text-muted-foreground">backend: {status}</span>
+        </>
+      }
+      left={<div className="text-sm text-muted-foreground">文件预览 / 识别结果(待 M1)</div>}
+      center={<div className="text-sm text-muted-foreground">听力稿编辑区(待 M3)</div>}
+      right={<div className="text-sm text-muted-foreground">语音 & 导出设置(待 M4)</div>}
+    />
   );
 }
 
