@@ -17,6 +17,27 @@ static PDFIUM: OnceLock<Result<PdfiumHolder, String>> = OnceLock::new();
 // 用 Mutex 保护初始化竞争（OnceLock::get_or_init 是 infallible）
 static INIT_LOCK: Mutex<()> = Mutex::new(());
 
+/// 运行时定位 pdfium.dll 所在目录。
+/// 依次尝试：
+///   1. 当前可执行文件旁（安装目录 / cargo run 的 target/{profile}/）
+///   2. CARGO_MANIFEST_DIR（cargo test / dev fallback，编译期常量）
+/// 返回第一个包含 pdfium.dll 的目录路径。
+fn find_pdfium_dir() -> std::path::PathBuf {
+    // 候选 1：exe 旁
+    if let Some(exe_dir) = std::env::current_exe()
+        .ok()
+        .and_then(|p| p.parent().map(|d| d.to_path_buf()))
+    {
+        let dll_path = exe_dir.join("pdfium.dll");
+        if dll_path.exists() {
+            return exe_dir;
+        }
+    }
+
+    // 候选 2：CARGO_MANIFEST_DIR（编译期常量，cargo test / dev 时有效）
+    std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+}
+
 fn get_pdfium() -> Result<&'static Pdfium, String> {
     if let Some(result) = PDFIUM.get() {
         return result.as_ref().map(|h| &h.0).map_err(|e| e.clone());
@@ -31,11 +52,10 @@ fn get_pdfium() -> Result<&'static Pdfium, String> {
     }
 
     let init_result: Result<PdfiumHolder, String> = {
-        Pdfium::bind_to_library(Pdfium::pdfium_platform_library_name_at_path(
-            env!("CARGO_MANIFEST_DIR"),
-        ))
-        .map_err(|e| format!("加载 pdfium 库失败: {e}"))
-        .map(|bindings| PdfiumHolder(Pdfium::new(bindings)))
+        let pdfium_dir = find_pdfium_dir();
+        Pdfium::bind_to_library(Pdfium::pdfium_platform_library_name_at_path(&pdfium_dir))
+            .map_err(|e| format!("加载 pdfium 库失败（目录: {}）: {e}", pdfium_dir.display()))
+            .map(|bindings| PdfiumHolder(Pdfium::new(bindings)))
     };
 
     let _ = PDFIUM.set(init_result);
