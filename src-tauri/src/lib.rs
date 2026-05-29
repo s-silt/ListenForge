@@ -1,16 +1,25 @@
 mod model;
 
-// Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
 #[tauri::command]
-fn greet(name: &str) -> String {
-    format!("Hello, {}! You've been greeted from Rust!", name)
+fn health() -> String {
+    "ok".to_string()
+}
+
+#[cfg(test)]
+mod cmd_tests {
+    use super::*;
+
+    #[test]
+    fn health_returns_ok() {
+        assert_eq!(health(), "ok");
+    }
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
-        .invoke_handler(tauri::generate_handler![greet])
+        .invoke_handler(tauri::generate_handler![health])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
