@@ -4,6 +4,7 @@ import { open } from "@tauri-apps/plugin-dialog";
 import { Layout } from "@/components/Layout";
 import { ScriptEditor } from "@/components/ScriptEditor";
 import { VoiceSettings } from "@/components/VoiceSettings";
+import { AiSettings } from "@/components/AiSettings";
 import type { Project } from "@/types";
 
 function App() {
@@ -146,18 +147,20 @@ function App() {
         )
       }
       right={
-        project ? (
-          <VoiceSettings
-            project={project}
-            onChange={handleProjectChange}
-            generatedFiles={generatedFiles}
-            saveStatus={saveStatus}
-          />
-        ) : (
-          <div className="text-sm text-muted-foreground space-y-2">
-            <span>语音 &amp; 导出</span>
-          </div>
-        )
+        <div className="space-y-4">
+          {project ? (
+            <VoiceSettings
+              project={project}
+              onChange={handleProjectChange}
+              generatedFiles={generatedFiles}
+              saveStatus={saveStatus}
+            />
+          ) : (
+            <div className="text-sm text-muted-foreground">语音 &amp; 导出</div>
+          )}
+          <hr className="border-border" />
+          <AiSettings />
+        </div>
       }
     />
   );

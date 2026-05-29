@@ -109,6 +109,69 @@ fn normalize_env_val(val: &str) -> Option<String> {
     Some(val.to_string())
 }
 
+// ─── GUI 可见的配置视图 ───────────────────────────────────────────────────────
+
+/// 返回给前端的 LLM 配置(不含 key 明文)。
+#[derive(Serialize, Clone, Debug)]
+pub struct LlmConfigView {
+    pub base_url: String,
+    pub model: String,
+    pub has_api_key: bool,
+}
+
+/// 读取配置视图,即使没有 api_key 也返回默认值,不返回 Err。
+pub fn read_config_view() -> LlmConfigView {
+    let default = LlmConfig::default();
+
+    let env_key = std::env::var("OPENAI_API_KEY").ok().and_then(|v| normalize_env_val(&v));
+    let env_base_url = std::env::var("OPENAI_BASE_URL").ok().and_then(|v| normalize_env_val(&v));
+    let env_model = std::env::var("OPENAI_MODEL").ok().and_then(|v| normalize_env_val(&v));
+
+    let (file_base_url, file_model, file_key) = read_dotenv_file();
+
+    let base_url = env_base_url.or(file_base_url).unwrap_or(default.base_url);
+    let model = env_model.or(file_model).unwrap_or(default.model);
+    let has_api_key = env_key.or(file_key).is_some();
+
+    LlmConfigView { base_url, model, has_api_key }
+}
+
+/// 将配置写入指定目录下的 `.env` 文件(可测试的纯函数)。
+/// 若 `api_key` 为 None 或空串,尝试保留目标文件中的旧 key。
+pub fn write_dotenv_to(dir: &std::path::Path, base_url: &str, model: &str, api_key: Option<&str>) -> Result<(), String> {
+    std::fs::create_dir_all(dir)
+        .map_err(|e| format!("创建目录失败: {e}"))?;
+
+    let env_path = dir.join(".env");
+
+    // 决定最终 key:传入非空 → 用传入;否则读现有文件的旧 key
+    let final_key: String = match api_key {
+        Some(k) if !k.trim().is_empty() => k.to_string(),
+        _ => {
+            // 尝试从已有文件读取旧 key
+            let old = std::fs::read_to_string(&env_path).unwrap_or_default();
+            let (_, _, old_key) = parse_env_config(&old);
+            old_key.unwrap_or_default()
+        }
+    };
+
+    let content = format!(
+        "# ListenForge LLM configuration\nOPENAI_API_KEY={}\nOPENAI_BASE_URL={}\nOPENAI_MODEL={}\n",
+        final_key, base_url, model
+    );
+
+    std::fs::write(&env_path, content)
+        .map_err(|e| format!("写入 .env 失败: {e}"))
+}
+
+/// 将配置写入 `~/Documents/ListenForge/.env`。
+pub fn write_dotenv(base_url: &str, model: &str, api_key: Option<&str>) -> Result<(), String> {
+    let dir = dirs::document_dir()
+        .ok_or_else(|| "无法获取 Documents 目录".to_string())?
+        .join("ListenForge");
+    write_dotenv_to(&dir, base_url, model, api_key)
+}
+
 // ─── 读取最终配置 ─────────────────────────────────────────────────────────────
 
 /// 读取 LlmConfig 和 api_key。
@@ -270,5 +333,70 @@ OPENAI_BASE_URL=https://api.openai.com/v1\n";
         assert_eq!(cfg.provider, "openai");
         assert_eq!(cfg.model, "gpt-5.4-mini");
         assert_eq!(cfg.base_url, "https://api.openai.com/v1");
+    }
+
+    // ─── write_dotenv_to 单测 ────────────────────────────────────────────────
+
+    #[test]
+    fn write_dotenv_to_round_trip() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let dir = tmp.path();
+
+        write_dotenv_to(dir, "https://my.api/v1", "gpt-99", Some("sk-abc"))
+            .expect("写入应成功");
+
+        let content = std::fs::read_to_string(dir.join(".env")).expect("文件应存在");
+        let (base_url, model, api_key) = parse_env_config(&content);
+        assert_eq!(base_url, Some("https://my.api/v1".to_string()));
+        assert_eq!(model, Some("gpt-99".to_string()));
+        assert_eq!(api_key, Some("sk-abc".to_string()));
+    }
+
+    #[test]
+    fn write_dotenv_to_preserves_old_key_when_none() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let dir = tmp.path();
+
+        // 先写一个含 key 的 .env
+        write_dotenv_to(dir, "https://api.openai.com/v1", "gpt-5.4-mini", Some("sk-old-key"))
+            .expect("首次写入应成功");
+
+        // 再次写入,api_key=None → 应保留旧 key
+        write_dotenv_to(dir, "https://new.api/v1", "gpt-100", None)
+            .expect("第二次写入应成功");
+
+        let content = std::fs::read_to_string(dir.join(".env")).expect("文件应存在");
+        let (base_url, model, api_key) = parse_env_config(&content);
+        assert_eq!(base_url, Some("https://new.api/v1".to_string()), "base_url 应更新");
+        assert_eq!(model, Some("gpt-100".to_string()), "model 应更新");
+        assert_eq!(api_key, Some("sk-old-key".to_string()), "key 应被保留");
+    }
+
+    #[test]
+    fn write_dotenv_to_preserves_old_key_when_empty_string() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let dir = tmp.path();
+
+        write_dotenv_to(dir, "https://api.openai.com/v1", "gpt-5.4-mini", Some("sk-original"))
+            .expect("首次写入应成功");
+
+        // 传空串同样保留旧 key
+        write_dotenv_to(dir, "https://api.openai.com/v1", "gpt-5.4-mini", Some(""))
+            .expect("空串写入应成功");
+
+        let content = std::fs::read_to_string(dir.join(".env")).expect("文件应存在");
+        let (_, _, api_key) = parse_env_config(&content);
+        assert_eq!(api_key, Some("sk-original".to_string()), "空串时 key 应被保留");
+    }
+
+    #[test]
+    fn write_dotenv_to_creates_parent_dir() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let nested = tmp.path().join("deep").join("nested").join("ListenForge");
+
+        write_dotenv_to(&nested, "https://api.openai.com/v1", "gpt-5.4-mini", Some("sk-x"))
+            .expect("应自动创建嵌套目录");
+
+        assert!(nested.join(".env").exists());
     }
 }

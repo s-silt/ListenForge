@@ -67,3 +67,9 @@ export interface ProgressPayload {
   total: number;
   message: string;
 }
+
+export interface LlmConfigView {
+  base_url: string;
+  model: string;
+  has_api_key: boolean;
+}

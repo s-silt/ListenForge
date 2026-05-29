@@ -79,6 +79,16 @@ async fn generate_audio(project: model::Project, output_dir: String) -> Result<V
     export::save_audio(&full, &parts, &output_dir, &project.title)
 }
 
+#[tauri::command]
+fn get_llm_config() -> llm::LlmConfigView {
+    llm::read_config_view()
+}
+
+#[tauri::command]
+fn save_llm_config(base_url: String, model: String, api_key: Option<String>) -> Result<(), String> {
+    llm::write_dotenv(&base_url, &model, api_key.as_deref())
+}
+
 #[cfg(test)]
 mod cmd_tests {
     use super::*;
@@ -116,7 +126,9 @@ pub fn run() {
             load_project_cmd,
             demo_progress,
             extract_script,
-            generate_audio
+            generate_audio,
+            get_llm_config,
+            save_llm_config
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
