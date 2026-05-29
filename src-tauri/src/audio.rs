@@ -1,26 +1,63 @@
-//! Audio pipeline: synthesise all parts of a [`Project`] and concatenate them.
+//! Audio pipeline: synthesise each segment of a [`Project`] individually and
+//! concatenate them with silent MP3 frames.
 //!
 //! ## Design
-//! - Zero C-library decoding/re-encoding.  All audio is kept as raw MP3 byte
-//!   streams returned by the Edge TTS WebSocket and concatenated with plain
-//!   `Vec::extend_from_slice`.
-//! - Pauses, repetitions, and number-label prosody are baked into the SSML
-//!   sent to the TTS engine (see [`crate::ssml`]) — no local DSP needed.
-//! - Chinese instructions are synthesised separately with the project's
-//!   `zh_voice` and prepended to the English audio for each part.
+//! Edge TTS does **not** support `<break>` elements inside SSML — any SSML
+//! that contains a break tag returns no audio.  Instead, this module:
+//!
+//! 1. Calls [`crate::tts::TtsProvider::synthesize`] once per text segment
+//!    (each call uses the single-`<prosody>` SSML that edge-tts accepts).
+//! 2. Inserts silent MP3 frames between segments to reproduce the timing that
+//!    was previously baked into SSML `<break>` elements.
+//! 3. Concatenates all raw MP3 byte streams — no decoding, no re-encoding,
+//!    no C libraries needed.
 
 use crate::model::Project;
-use crate::ssml::render_part_english_ssml;
+use crate::ssml::strip_chinese_parens;
 use crate::tts::TtsProvider;
+
+// ── Silence frames ────────────────────────────────────────────────────────────
+
+/// Generate approximately `ms` milliseconds of silence as raw MP3 bytes.
+///
+/// The frame format matches the edge-tts output stream:
+/// MPEG-2 Layer III, 24 kHz, 48 kbps, mono.
+///
+/// Frame header bytes: `FF F3 64 C0`
+/// - `FF F3`: sync word + MPEG-2, Layer III, no CRC
+/// - `64`: 48 kbps bitrate (index 6), 24 kHz sample-rate (index 1), no padding, private=0
+/// - `C0`: channel mode = single-channel (mono), mode ext = 0, copyright = 0,
+///         original = 1 (bit 1), emphasis = none
+///
+/// Each frame is 144 bytes and covers exactly 576 samples = 24 ms at 24 kHz.
+/// The 140 bytes after the header are all zero, which decodes as silence.
+pub(crate) fn silence_mp3(ms: u32) -> Vec<u8> {
+    const FRAME_HEADER: [u8; 4] = [0xFF, 0xF3, 0x64, 0xC0];
+    const FRAME_SIZE: usize = 144;
+    const FRAME_MS: u32 = 24; // 576 samples / 24000 Hz = 24 ms
+    let n = ((ms + FRAME_MS - 1) / FRAME_MS).max(1); // ceiling division, at least 1
+    let mut out = Vec::with_capacity(n as usize * FRAME_SIZE);
+    for _ in 0..n {
+        out.extend_from_slice(&FRAME_HEADER);
+        out.extend(std::iter::repeat(0u8).take(FRAME_SIZE - 4));
+    }
+    out
+}
+
+// ── Main pipeline ─────────────────────────────────────────────────────────────
 
 /// Generate full-project and per-part MP3 audio.
 ///
 /// Returns `(full_mp3, [(filename, part_mp3), …])` where the filenames are
 /// `"01_PartLabel.mp3"`, `"02_PartLabel.mp3"`, … (zero-padded two digits).
 ///
-/// The overall audio is the parts concatenated in index order with no
-/// additional silence inserted at the boundary (silence between parts is
-/// already encoded by `render_part_english_ssml` via the part's SSML).
+/// Each segment is synthesised independently via
+/// [`TtsProvider::synthesize`] (which wraps the text in a single
+/// `<prosody>` element — the only SSML form edge-tts reliably accepts).
+/// Pauses are produced by inserting [`silence_mp3`] frames.
+///
+/// If any synthesis call fails the function returns `Err` immediately with a
+/// message that identifies the failing part and segment.
 pub async fn generate_project_audio(
     project: &Project,
     provider: &dyn TtsProvider,
@@ -29,40 +66,102 @@ pub async fn generate_project_audio(
     let mut parts_out: Vec<(String, Vec<u8>)> = Vec::new();
 
     for (idx, part) in project.parts.iter().enumerate() {
+        let part_label = idx + 1; // 1-based for error messages
         let mut part_mp3: Vec<u8> = Vec::new();
 
         // ── Optional Chinese instruction ──────────────────────────────────
         if part.read_zh_instruction {
             if let Some(ref zh) = part.zh_instruction {
                 if !zh.is_empty() {
-                    let zh_bytes = provider
+                    let bytes = provider
                         .synthesize(zh, &vc.zh_voice, vc.rate, vc.pitch, vc.volume)
                         .await
-                        .map_err(|e| format!("zh TTS part {}: {e}", idx + 1))?;
-                    part_mp3.extend_from_slice(&zh_bytes);
+                        .map_err(|e| {
+                            format!("zh TTS part {part_label} (zh instruction): {e}")
+                        })?;
+                    part_mp3.extend_from_slice(&bytes);
+                    part_mp3.extend_from_slice(&silence_mp3(1000));
                 }
             }
         }
 
-        // ── English SSML ──────────────────────────────────────────────────
-        let ssml = render_part_english_ssml(part, &vc.en_voice, vc.rate);
-        let en_bytes = provider
-            .synthesize_ssml(&ssml, &vc.en_voice)
-            .await
-            .map_err(|e| format!("en TTS part {}: {e}", idx + 1))?;
-        part_mp3.extend_from_slice(&en_bytes);
+        // ── Part label (English portion) ──────────────────────────────────
+        if part.read_label {
+            let en_label = strip_chinese_parens(&part.label);
+            if !en_label.is_empty() {
+                let bytes = provider
+                    .synthesize(&en_label, &vc.en_voice, vc.rate, vc.pitch, vc.volume)
+                    .await
+                    .map_err(|e| {
+                        format!("en TTS part {part_label} (label): {e}")
+                    })?;
+                part_mp3.extend_from_slice(&bytes);
+                part_mp3.extend_from_slice(&silence_mp3(2000));
+            }
+        }
+
+        // ── Items ─────────────────────────────────────────────────────────
+        for (item_idx, item) in part.items.iter().enumerate() {
+            if !item.enabled {
+                continue;
+            }
+
+            let item_label = item_idx + 1; // 1-based for error messages
+
+            // Number label (read at base_rate − 5)
+            if item.read_number {
+                if let Some(n) = item.number {
+                    let num_text = format!("Number {n}.");
+                    let num_rate = (vc.rate - 5).max(-100);
+                    let bytes = provider
+                        .synthesize(&num_text, &vc.en_voice, num_rate, vc.pitch, vc.volume)
+                        .await
+                        .map_err(|e| {
+                            format!(
+                                "en TTS part {part_label} item {item_label} (number): {e}"
+                            )
+                        })?;
+                    part_mp3.extend_from_slice(&bytes);
+                    part_mp3.extend_from_slice(&silence_mp3(600));
+                }
+            }
+
+            // Body text (first reading)
+            let bytes = provider
+                .synthesize(&item.text, &vc.en_voice, vc.rate, vc.pitch, vc.volume)
+                .await
+                .map_err(|e| {
+                    format!("en TTS part {part_label} item {item_label} (text): {e}")
+                })?;
+            part_mp3.extend_from_slice(&bytes);
+
+            // Optional second reading (repeat ≥ 2)
+            if item.repeat >= 2 {
+                part_mp3.extend_from_slice(&silence_mp3(1500));
+                let bytes2 = provider
+                    .synthesize(&item.text, &vc.en_voice, vc.rate, vc.pitch, vc.volume)
+                    .await
+                    .map_err(|e| {
+                        format!(
+                            "en TTS part {part_label} item {item_label} (repeat): {e}"
+                        )
+                    })?;
+                part_mp3.extend_from_slice(&bytes2);
+            }
+
+            // Per-item trailing gap
+            part_mp3.extend_from_slice(&silence_mp3(item.gap_after_ms));
+        }
+
+        // ── Part trailing gap ─────────────────────────────────────────────
+        part_mp3.extend_from_slice(&silence_mp3(part.gap_after_ms));
 
         // ── File name ─────────────────────────────────────────────────────
-        let filename = format!(
-            "{:02}_{}.mp3",
-            idx + 1,
-            sanitize_part_name(part)
-        );
-
+        let filename = format!("{:02}_{}.mp3", idx + 1, sanitize_part_name(part));
         parts_out.push((filename, part_mp3));
     }
 
-    // Full MP3 = all parts concatenated.
+    // Full MP3 = all parts concatenated in order.
     let full_mp3: Vec<u8> = parts_out
         .iter()
         .flat_map(|(_, bytes)| bytes.iter().copied())
@@ -71,21 +170,17 @@ pub async fn generate_project_audio(
     Ok((full_mp3, parts_out))
 }
 
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
 /// Sanitize a part's label into a safe filename fragment (≤ 40 chars).
 ///
 /// Keeps ASCII alphanumerics and replaces everything else with `_`.
-/// Strips leading/trailing underscores.
+/// Collapses repeated underscores and strips leading/trailing underscores.
 fn sanitize_part_name(part: &crate::model::Part) -> String {
     let raw: String = part
         .label
         .chars()
-        .map(|c| {
-            if c.is_ascii_alphanumeric() {
-                c
-            } else {
-                '_'
-            }
-        })
+        .map(|c| if c.is_ascii_alphanumeric() { c } else { '_' })
         .collect();
     // Collapse repeated underscores and trim.
     let collapsed = raw
@@ -103,6 +198,75 @@ fn sanitize_part_name(part: &crate::model::Part) -> String {
 mod tests {
     use super::*;
     use crate::model::{Item, Part, TaskType};
+
+    // ── silence_mp3 ───────────────────────────────────────────────────────
+
+    #[test]
+    fn silence_mp3_starts_with_sync_bytes() {
+        let data = silence_mp3(100);
+        assert_eq!(
+            &data[..2],
+            &[0xFF, 0xF3],
+            "must start with MPEG-2 sync bytes FF F3"
+        );
+    }
+
+    #[test]
+    fn silence_mp3_full_header() {
+        let data = silence_mp3(100);
+        assert_eq!(
+            &data[..4],
+            &[0xFF, 0xF3, 0x64, 0xC0],
+            "frame header must be FF F3 64 C0"
+        );
+    }
+
+    #[test]
+    fn silence_mp3_length_1000ms() {
+        // 1000 ms / 24 ms per frame = ceil(41.67) = 42 frames
+        // 42 frames × 144 bytes = 6048 bytes
+        let data = silence_mp3(1000);
+        assert_eq!(data.len(), 42 * 144, "1000 ms should produce 42 frames (6048 bytes)");
+    }
+
+    #[test]
+    fn silence_mp3_length_24ms_exact() {
+        // Exactly one frame duration
+        let data = silence_mp3(24);
+        assert_eq!(data.len(), 144);
+    }
+
+    #[test]
+    fn silence_mp3_minimum_one_frame() {
+        // Even 0 ms should produce at least 1 frame
+        let data = silence_mp3(0);
+        assert_eq!(data.len(), 144, "0 ms must still produce 1 frame");
+    }
+
+    #[test]
+    fn silence_mp3_multiple_of_frame_size() {
+        for ms in [100, 500, 999, 1000, 2000, 5000] {
+            let data = silence_mp3(ms);
+            assert_eq!(
+                data.len() % 144,
+                0,
+                "silence_mp3({ms}) length {} is not a multiple of 144",
+                data.len()
+            );
+        }
+    }
+
+    #[test]
+    fn silence_mp3_payload_is_zero() {
+        let data = silence_mp3(24); // one frame
+        // Bytes 4..144 must all be 0x00
+        assert!(
+            data[4..].iter().all(|&b| b == 0),
+            "frame payload (bytes 4..) must be all zeros (silence)"
+        );
+    }
+
+    // ── sanitize_part_name ────────────────────────────────────────────────
 
     #[test]
     fn sanitize_part_name_ascii() {
@@ -143,7 +307,7 @@ mod tests {
         assert!(name.len() <= 40, "should be truncated: {}", name.len());
     }
 
-    // ── E2E test (requires network — run with `cargo test -- --ignored`) ──
+    // ── E2E (network — run with `cargo test -- --ignored`) ────────────────
 
     /// End-to-end: build a tiny Project, call generate_project_audio,
     /// assert full mp3 non-empty and starts with ID3 or MPEG sync byte.
@@ -233,7 +397,8 @@ mod tests {
 
         // MP3 frames begin with 0xFF 0xFB/0xE0/... or ID3 header "ID3"
         let is_mp3_like = |data: &[u8]| {
-            data.starts_with(b"ID3") || (data.len() >= 2 && data[0] == 0xFF && data[1] & 0xE0 == 0xE0)
+            data.starts_with(b"ID3")
+                || (data.len() >= 2 && data[0] == 0xFF && data[1] & 0xE0 == 0xE0)
         };
         assert!(
             is_mp3_like(&full),
