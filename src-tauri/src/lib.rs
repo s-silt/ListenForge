@@ -1,3 +1,4 @@
+mod llm;
 mod model;
 mod persistence;
 pub mod render;
