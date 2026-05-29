@@ -48,8 +48,14 @@ fn get_pdfium() -> Result<&'static Pdfium, String> {
         .map_err(|e| e.clone())
 }
 
+/// 串行化所有渲染:pdfium C 库非线程安全,而 PdfiumHolder 是单例 unsafe-Sync 共享,
+/// INIT_LOCK 只覆盖初始化、不覆盖渲染本身,故此处再加全局渲染锁,
+/// 保证同一时刻只有一个渲染在进行(否则并发 command 会数据竞争/崩溃)。
+static RENDER_LOCK: Mutex<()> = Mutex::new(());
+
 /// 把 PDF 每页渲染成 PNG 字节。scale 提高分辨率以利 OCR（如 2.0）。
 pub fn render_pdf_to_pngs(pdf_path: &str, scale: f32) -> Result<Vec<Vec<u8>>, String> {
+    let _render_guard = RENDER_LOCK.lock().map_err(|e| format!("渲染锁中毒: {e}"))?;
     let pdfium = get_pdfium()?;
 
     let document = pdfium
