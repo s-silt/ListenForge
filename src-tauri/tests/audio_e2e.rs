@@ -24,6 +24,8 @@ fn make_test_project() -> Project {
         rate: 0,
         pitch: 0,
         volume: 100,
+        teacher_voice: "en-US-GuyNeural".into(),
+        student_voice: "en-US-AnaNeural".into(),
     };
     project.export_config = ExportConfig::default();
 
@@ -46,6 +48,7 @@ fn make_test_project() -> Project {
                 gap_after_ms: 3000,
                 read_number: true,
                 override_voice: None,
+                speaker: None,
             },
             Item {
                 id: "i2".into(),
@@ -56,6 +59,7 @@ fn make_test_project() -> Project {
                 gap_after_ms: 3000,
                 read_number: true,
                 override_voice: None,
+                speaker: None,
             },
         ],
         gap_after_ms: 5000,
@@ -79,6 +83,7 @@ fn make_test_project() -> Project {
             gap_after_ms: 3000,
             read_number: false,
             override_voice: None,
+            speaker: None,
         }],
         gap_after_ms: 5000,
     });

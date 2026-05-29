@@ -42,13 +42,16 @@ pub fn extracted_script_schema() -> Value {
                             "items": {
                                 "type": "object",
                                 "additionalProperties": false,
-                                "required": ["number", "text"],
+                                "required": ["number", "text", "speaker"],
                                 "properties": {
                                     "number": {
                                         "type": ["integer", "null"]
                                     },
                                     "text": {
                                         "type": "string"
+                                    },
+                                    "speaker": {
+                                        "type": ["string", "null"]
                                     }
                                 }
                             }
@@ -102,5 +105,20 @@ mod tests {
                 ["additionalProperties"],
             false
         );
+    }
+
+    #[test]
+    fn schema_extracted_item_has_speaker_field() {
+        let schema = extracted_script_schema();
+        let item_schema = &schema["properties"]["parts"]["items"]["properties"]["items"]["items"];
+        // speaker should be in required
+        let required = item_schema["required"].as_array().unwrap();
+        let required_strs: Vec<&str> = required.iter().map(|v| v.as_str().unwrap()).collect();
+        assert!(required_strs.contains(&"speaker"), "speaker 应在 required 中, 实际: {:?}", required_strs);
+        // speaker should be nullable string
+        let speaker_type = &item_schema["properties"]["speaker"]["type"];
+        let types: Vec<&str> = speaker_type.as_array().unwrap().iter().map(|v| v.as_str().unwrap()).collect();
+        assert!(types.contains(&"string"), "speaker type 应含 string");
+        assert!(types.contains(&"null"), "speaker type 应含 null");
     }
 }

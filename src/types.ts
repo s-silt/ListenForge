@@ -18,6 +18,7 @@ export interface Item {
   gap_after_ms: number;
   read_number: boolean;
   override_voice: string | null;
+  speaker: string | null;
 }
 
 export interface Part {
@@ -39,6 +40,8 @@ export interface VoiceConfig {
   rate: number;
   pitch: number;
   volume: number;
+  teacher_voice: string;
+  student_voice: string;
 }
 
 export interface ExportConfig {

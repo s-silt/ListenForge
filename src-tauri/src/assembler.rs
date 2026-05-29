@@ -14,6 +14,7 @@ pub fn build_project(extracted: ExtractedScript, source_file: &str, source_type:
             gap_after_ms: 3000,
             read_number: true,
             override_voice: None,
+            speaker: ei.speaker,
         }).collect();
         let has_zh = ep.zh_instruction.is_some();
         Part {
@@ -67,6 +68,7 @@ mod tests {
                 items: vec![ExtractedItem {
                     number: Some(1),
                     text: "I can take the dishes to the kitchen.".to_string(),
+                    speaker: Some("A".to_string()),
                 }],
             }],
         }
@@ -133,5 +135,16 @@ mod tests {
         extracted.title = Some("Unit 2 Listening".to_string());
         let project = build_project(extracted, "C:/test/unit2.pdf", SourceType::PdfText);
         assert_eq!(project.title, "Unit 2 Listening");
+    }
+
+    #[test]
+    fn build_project_speaker_passed_through() {
+        let project = build_project(
+            make_extracted(),
+            "C:/test/unit2.pdf",
+            SourceType::PdfText,
+        );
+        let item = &project.parts[0].items[0];
+        assert_eq!(item.speaker, Some("A".to_string()), "speaker 应从 ExtractedItem 传入 Item");
     }
 }

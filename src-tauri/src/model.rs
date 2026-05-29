@@ -31,6 +31,7 @@ pub struct Item {
     pub gap_after_ms: u32,
     pub read_number: bool,
     pub override_voice: Option<String>,
+    pub speaker: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -54,6 +55,8 @@ pub struct VoiceConfig {
     pub rate: i32,
     pub pitch: i32,
     pub volume: u32,
+    pub teacher_voice: String,
+    pub student_voice: String,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -88,6 +91,8 @@ impl Default for VoiceConfig {
             rate: 0,
             pitch: 0,
             volume: 100,
+            teacher_voice: "en-US-GuyNeural".into(),
+            student_voice: "en-US-AnaNeural".into(),
         }
     }
 }
@@ -146,6 +151,7 @@ mod tests {
                 gap_after_ms: 3000,
                 read_number: true,
                 override_voice: None,
+                speaker: Some("A".into()),
             }],
             gap_after_ms: 5000,
         });
@@ -161,5 +167,12 @@ mod tests {
         assert_eq!(json, "\"pdf_scanned\"");
         let json = serde_json::to_string(&TaskType::ListenAndNumber).unwrap();
         assert_eq!(json, "\"listen_and_number\"");
+    }
+
+    #[test]
+    fn voice_config_default_has_teacher_student_voices() {
+        let cfg = VoiceConfig::default();
+        assert_eq!(cfg.teacher_voice, "en-US-GuyNeural");
+        assert_eq!(cfg.student_voice, "en-US-AnaNeural");
     }
 }

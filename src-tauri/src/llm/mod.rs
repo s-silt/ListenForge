@@ -39,6 +39,7 @@ pub struct ExtractedPart {
 pub struct ExtractedItem {
     pub number: Option<u32>,
     pub text: String,
+    pub speaker: Option<String>,
 }
 
 // ─── LLM 配置 ────────────────────────────────────────────────────────────────
@@ -237,10 +238,12 @@ mod tests {
                         ExtractedItem {
                             number: Some(1),
                             text: "I can take the dishes to the kitchen.".to_string(),
+                            speaker: None,
                         },
                         ExtractedItem {
                             number: Some(2),
                             text: "She is reading a book.".to_string(),
+                            speaker: None,
                         },
                     ],
                 },
@@ -251,6 +254,7 @@ mod tests {
                     items: vec![ExtractedItem {
                         number: None,
                         text: "Once upon a time there was a brave knight.".to_string(),
+                        speaker: None,
                     }],
                 },
             ],
