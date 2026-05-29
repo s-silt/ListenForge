@@ -1,5 +1,6 @@
 mod model;
 mod persistence;
+pub mod render;
 
 use model::Project;
 use tauri::Emitter;
