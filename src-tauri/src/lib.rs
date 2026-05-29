@@ -1,3 +1,4 @@
+pub mod input_builder;
 mod llm;
 mod model;
 mod persistence;

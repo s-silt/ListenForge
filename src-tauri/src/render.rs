@@ -1,16 +1,56 @@
 use image::ImageFormat;
 use pdfium_render::prelude::*;
 use std::io::Cursor;
+use std::sync::{Mutex, OnceLock};
 
-/// 把 PDF 每页渲染成 PNG 字节。scale 提高分辨率以利 OCR（如 2.0）。
-pub fn render_pdf_to_pngs(pdf_path: &str, scale: f32) -> Result<Vec<Vec<u8>>, String> {
-    // 从 CARGO_MANIFEST_DIR（即 src-tauri/）加载 pdfium.dll
-    let pdfium = Pdfium::new(
+// pdfium 是进程级单例（内部用 OnceCell 存 bindings）。
+// 用 OnceLock<Result<...>> 缓存初始化结果，确保全进程只调用一次 Pdfium::new。
+//
+// Safety: Pdfium 只含 Option<PdfiumLibraryConfig>，
+// 实际 FFI 函数指针在 pdfium-render 内部的进程级 OnceCell 中，pdfium C 库本身线程安全。
+struct PdfiumHolder(Pdfium);
+unsafe impl Send for PdfiumHolder {}
+unsafe impl Sync for PdfiumHolder {}
+
+static PDFIUM: OnceLock<Result<PdfiumHolder, String>> = OnceLock::new();
+
+// 用 Mutex 保护初始化竞争（OnceLock::get_or_init 是 infallible）
+static INIT_LOCK: Mutex<()> = Mutex::new(());
+
+fn get_pdfium() -> Result<&'static Pdfium, String> {
+    if let Some(result) = PDFIUM.get() {
+        return result.as_ref().map(|h| &h.0).map_err(|e| e.clone());
+    }
+
+    // 加锁防止竞争
+    let _guard = INIT_LOCK.lock().unwrap();
+
+    // double-check after lock
+    if let Some(result) = PDFIUM.get() {
+        return result.as_ref().map(|h| &h.0).map_err(|e| e.clone());
+    }
+
+    let init_result: Result<PdfiumHolder, String> = {
         Pdfium::bind_to_library(Pdfium::pdfium_platform_library_name_at_path(
             env!("CARGO_MANIFEST_DIR"),
         ))
-        .map_err(|e| format!("加载 pdfium 库失败: {e}"))?,
-    );
+        .map_err(|e| format!("加载 pdfium 库失败: {e}"))
+        .map(|bindings| PdfiumHolder(Pdfium::new(bindings)))
+    };
+
+    let _ = PDFIUM.set(init_result);
+
+    PDFIUM
+        .get()
+        .unwrap()
+        .as_ref()
+        .map(|h| &h.0)
+        .map_err(|e| e.clone())
+}
+
+/// 把 PDF 每页渲染成 PNG 字节。scale 提高分辨率以利 OCR（如 2.0）。
+pub fn render_pdf_to_pngs(pdf_path: &str, scale: f32) -> Result<Vec<Vec<u8>>, String> {
+    let pdfium = get_pdfium()?;
 
     let document = pdfium
         .load_pdf_from_file(pdf_path, None)
@@ -42,11 +82,13 @@ pub fn render_pdf_to_pngs(pdf_path: &str, scale: f32) -> Result<Vec<Vec<u8>>, St
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serial_test::serial;
 
     const TEST_PDF: &str = r"C:\Users\sxl\Documents\ListenForge\Unit 2小练习.pdf";
     const PNG_MAGIC: [u8; 4] = [0x89, 0x50, 0x4E, 0x47];
 
     #[test]
+    #[serial]
     fn render_pdf_produces_valid_pngs() {
         let pages = render_pdf_to_pngs(TEST_PDF, 2.0)
             .expect("render_pdf_to_pngs 应成功");

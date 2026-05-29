@@ -1,7 +1,23 @@
+pub mod openai;
 pub mod schema;
 
 use serde::{Deserialize, Serialize};
 use crate::model::TaskType;
+
+// ─── ContentBlock ────────────────────────────────────────────────────────────
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum ContentBlock {
+    Text(String),
+    Image { data_url: String },
+}
+
+// ─── LlmProvider trait ───────────────────────────────────────────────────────
+
+#[async_trait::async_trait]
+pub trait LlmProvider {
+    async fn extract(&self, blocks: Vec<ContentBlock>) -> Result<ExtractedScript, String>;
+}
 
 // ─── 提取结果类型 ────────────────────────────────────────────────────────────
 
