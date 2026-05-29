@@ -38,7 +38,11 @@ async fn extract_real_pdf() {
     println!("project id: {}", project.id);
     println!("project title: {}", project.title);
     for (i, p) in project.parts.iter().enumerate() {
-        println!("  part[{}]: label={:?}, items={}", i, p.label, p.items.len());
+        println!("\n  part[{}]: label={:?}", i, p.label);
+        println!("    zh_instruction={:?}", p.zh_instruction);
+        for it in &p.items {
+            println!("    [{:?}] {}", it.number, it.text);
+        }
     }
 
     // 5. 断言
