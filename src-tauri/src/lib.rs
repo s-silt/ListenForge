@@ -1,10 +1,12 @@
+pub mod assembler;
 pub mod input_builder;
-mod llm;
-mod model;
-mod persistence;
+pub mod llm;
+pub mod model;
+pub mod persistence;
 pub mod render;
 
-use model::Project;
+use model::{Project, SourceType};
+use std::path::Path;
 use tauri::Emitter;
 use serde::Serialize;
 
@@ -13,6 +15,28 @@ struct ProgressPayload {
     current: u32,
     total: u32,
     message: String,
+}
+
+fn infer_source_type(path: &str) -> SourceType {
+    match Path::new(path)
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(|s| s.to_lowercase())
+        .as_deref()
+    {
+        Some("docx") | Some("doc") => SourceType::Docx,
+        Some("jpg") | Some("jpeg") | Some("png") | Some("webp") => SourceType::Image,
+        _ => SourceType::PdfText,
+    }
+}
+
+#[tauri::command]
+async fn extract_script(path: String) -> Result<Project, String> {
+    let blocks = input_builder::build_blocks(&path)?;
+    let (cfg, api_key) = llm::read_llm_config()?;
+    let provider = llm::openai::OpenAiProvider::new(cfg, api_key)?;
+    let extracted = { use llm::LlmProvider; provider.extract(blocks).await? };
+    Ok(assembler::build_project(extracted, &path, infer_source_type(&path)))
 }
 
 #[tauri::command]
@@ -52,13 +76,36 @@ mod cmd_tests {
     fn health_returns_ok() {
         assert_eq!(health(), "ok");
     }
+
+    #[test]
+    fn infer_source_type_pdf() {
+        assert_eq!(infer_source_type("foo/bar.pdf"), SourceType::PdfText);
+    }
+
+    #[test]
+    fn infer_source_type_docx() {
+        assert_eq!(infer_source_type("foo/bar.docx"), SourceType::Docx);
+    }
+
+    #[test]
+    fn infer_source_type_image() {
+        assert_eq!(infer_source_type("foo/bar.png"), SourceType::Image);
+        assert_eq!(infer_source_type("foo/bar.jpg"), SourceType::Image);
+    }
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
-        .invoke_handler(tauri::generate_handler![health, save_project_cmd, load_project_cmd, demo_progress])
+        .plugin(tauri_plugin_dialog::init())
+        .invoke_handler(tauri::generate_handler![
+            health,
+            save_project_cmd,
+            load_project_cmd,
+            demo_progress,
+            extract_script
+        ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
