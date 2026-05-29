@@ -4,48 +4,24 @@ use serde_json::{json, Value};
 use super::{ContentBlock, ExtractedScript, LlmConfig, LlmProvider};
 use crate::llm::schema::extracted_script_schema;
 
-// ─── System prompt ───────────────────────────────────────────────────────────
-
-const SYSTEM_PROMPT: &str = r#"You are a Chinese primary-school English listening-test script extractor.
-
-Your job: given scanned pages (images) or text of a practice worksheet, extract ONLY the "Listening Script" / "Tapescript" / "听力原文" section — the sentences that will be read aloud in the exam.
-
-Rules:
-1. DO NOT include answer keys (e.g. "1.B 2.A", "答案:", "→4,3,2,1", "( B )").
-2. DO NOT include Chinese translations of English sentences.
-3. Strip item numbers from `text`; put the digit in `number` (integer). For passage-style items set number to null.
-4. Chinese task instructions (第一大题…) → `zh_instruction`. Discard Chinese translations of English content.
-5. Infer `task_type` from the section heading:
-   - "listen and choose" / "选择" → listen_and_choose
-   - "number" / "排序" / "编号" → listen_and_number
-   - "judge" / "判断" → listen_and_judge
-   - "write" / "填写" → listen_and_write
-   - "circle" / "圈出" → listen_and_circle
-   - continuous passage / short text → listen_passage
-   - unclear → unknown
-6. A continuous short passage (no numbered items) uses one item with number=null.
-7. Output STRICT JSON with EXACTLY these field names — do not rename them:
-
-{"title": "nullable string or null", "parts": [{"label": "Part One. Listen and choose.", "task_type": "listen_and_choose", "zh_instruction": "第一大题说明或null", "items": [{"number": 1, "text": "I can take the dishes to the kitchen."}]}]}
-
-Only output the JSON object, no markdown fences, no extra keys."#;
-
 // ─── OpenAiProvider ──────────────────────────────────────────────────────────
 
 pub struct OpenAiProvider {
     cfg: LlmConfig,
     api_key: String,
     client: reqwest::Client,
+    system_prompt: String,
 }
 
 impl OpenAiProvider {
     /// 构造函数。client 使用 no_proxy() 绕过系统代理(关键：否则局域网中转超时)。
-    pub fn new(cfg: LlmConfig, api_key: String) -> Result<Self, String> {
+    /// `system_prompt` 在运行时由调用方传入(通常来自 prompts::selected_prompt_content())。
+    pub fn new(cfg: LlmConfig, api_key: String, system_prompt: String) -> Result<Self, String> {
         let client = reqwest::Client::builder()
             .no_proxy()
             .build()
             .map_err(|e| format!("构建 reqwest client 失败: {e}"))?;
-        Ok(Self { cfg, api_key, client })
+        Ok(Self { cfg, api_key, client, system_prompt })
     }
 
     /// 构造请求 body (公开供单测)。
@@ -78,7 +54,7 @@ impl OpenAiProvider {
             "messages": [
                 {
                     "role": "system",
-                    "content": SYSTEM_PROMPT
+                    "content": self.system_prompt
                 },
                 {
                     "role": "user",
@@ -179,7 +155,8 @@ mod tests {
             model: "gpt-4o-mini".into(),
             base_url: "https://api.openai.com/v1".into(),
         };
-        OpenAiProvider::new(cfg, "test-key".into()).expect("构建 provider 应成功")
+        OpenAiProvider::new(cfg, "test-key".into(), "test system prompt".into())
+            .expect("构建 provider 应成功")
     }
 
     #[test]

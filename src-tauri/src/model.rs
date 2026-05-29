@@ -31,6 +31,7 @@ pub struct Item {
     pub gap_after_ms: u32,
     pub read_number: bool,
     pub override_voice: Option<String>,
+    #[serde(default)]
     pub speaker: Option<String>,
 }
 
@@ -47,6 +48,14 @@ pub struct Part {
     pub gap_after_ms: u32,
 }
 
+fn default_teacher_voice() -> String {
+    "en-US-GuyNeural".to_string()
+}
+
+fn default_student_voice() -> String {
+    "en-US-AnaNeural".to_string()
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct VoiceConfig {
     pub provider: String,
@@ -55,7 +64,9 @@ pub struct VoiceConfig {
     pub rate: i32,
     pub pitch: i32,
     pub volume: u32,
+    #[serde(default = "default_teacher_voice")]
     pub teacher_voice: String,
+    #[serde(default = "default_student_voice")]
     pub student_voice: String,
 }
 

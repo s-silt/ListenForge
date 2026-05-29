@@ -21,7 +21,8 @@ async fn full_pipeline_pdf_to_mp3() {
     println!("[1/3] 提取听力稿...");
     let blocks = build_blocks(pdf).expect("build_blocks");
     let (cfg, key) = read_llm_config().expect("read_llm_config");
-    let llm = OpenAiProvider::new(cfg, key).expect("OpenAiProvider");
+    let prompt = listenforge_lib::prompts::selected_prompt_content();
+    let llm = OpenAiProvider::new(cfg, key, prompt).expect("OpenAiProvider");
     let extracted = llm.extract(blocks).await.expect("extract");
     let project = build_project(extracted, pdf, SourceType::PdfText);
     println!("    标题: {}", project.title);

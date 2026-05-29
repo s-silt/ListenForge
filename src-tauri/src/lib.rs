@@ -5,6 +5,7 @@ pub mod input_builder;
 pub mod llm;
 pub mod model;
 pub mod persistence;
+pub mod prompts;
 pub mod render;
 pub mod ssml;
 pub mod tts;
@@ -38,9 +39,25 @@ fn infer_source_type(path: &str) -> SourceType {
 async fn extract_script(path: String) -> Result<Project, String> {
     let blocks = input_builder::build_blocks(&path)?;
     let (cfg, api_key) = llm::read_llm_config()?;
-    let provider = llm::openai::OpenAiProvider::new(cfg, api_key)?;
+    let prompt = prompts::selected_prompt_content();
+    let provider = llm::openai::OpenAiProvider::new(cfg, api_key, prompt)?;
     let extracted = { use llm::LlmProvider; provider.extract(blocks).await? };
     Ok(assembler::build_project(extracted, &path, infer_source_type(&path)))
+}
+
+#[tauri::command]
+fn get_prompt_templates() -> Vec<prompts::PromptTemplate> {
+    prompts::all_templates()
+}
+
+#[tauri::command]
+fn save_prompt_selection(id: String) -> Result<(), String> {
+    prompts::set_selected(&id)
+}
+
+#[tauri::command]
+fn save_custom_prompt(name: String, content: String) -> Result<String, String> {
+    prompts::save_custom(&name, &content)
 }
 
 #[tauri::command]
@@ -128,7 +145,10 @@ pub fn run() {
             extract_script,
             generate_audio,
             get_llm_config,
-            save_llm_config
+            save_llm_config,
+            get_prompt_templates,
+            save_prompt_selection,
+            save_custom_prompt
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -28,7 +28,8 @@ async fn extract_real_pdf() {
     println!("model: {}, base_url: {}", cfg.model, cfg.base_url);
 
     // 3. 调用 LLM 提取
-    let provider = OpenAiProvider::new(cfg, api_key).expect("构建 OpenAiProvider 应成功");
+    let prompt = listenforge_lib::prompts::selected_prompt_content();
+    let provider = OpenAiProvider::new(cfg, api_key, prompt).expect("构建 OpenAiProvider 应成功");
     let extracted = provider.extract(blocks).await.expect("extract 应成功");
     println!("extracted title: {:?}", extracted.title);
     println!("extracted parts count: {}", extracted.parts.len());
