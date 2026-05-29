@@ -3,7 +3,8 @@ use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
 use crate::llm::ContentBlock;
 
 /// 根据文件扩展名构建 ContentBlock 列表。
-/// - PDF  → 每页渲染成 PNG → Image { data_url }
+/// - PDF（文字型）→ pdfium 抽文本 → vec![Text(全文)]
+/// - PDF（扫描版）→ pdfium 文本层为空 → 回退渲染 PNG → 多个 Image { data_url }
 /// - jpg/jpeg/png/webp → 读字节 → Image { data_url }
 /// - docx → 抽纯文本 → vec![Text(全文)]
 /// - 其它 → Err
@@ -29,6 +30,15 @@ fn build_blocks_from_pdf(path: &str) -> Result<Vec<ContentBlock>, String> {
     if !std::path::Path::new(path).exists() {
         return Err(format!("文件不存在: {path}"));
     }
+
+    // 先尝试文本提取：文字型 PDF 有文本层，字符数足够多则走纯文本路线
+    let text = crate::render::extract_pdf_text(path)?;
+    if text.trim().chars().count() >= 50 {
+        // 文字型 PDF：直接返回 Text block，避免昂贵的图像渲染 + vision API
+        return Ok(vec![ContentBlock::Text(text)]);
+    }
+
+    // 扫描版 PDF（几乎无文本层）：回退到渲染成 PNG → Image block
     let pages = crate::render::render_pdf_to_pngs(path, 2.0)?;
     let blocks = pages
         .into_iter()
@@ -139,39 +149,39 @@ mod tests {
 
     #[test]
     #[serial]
-    fn build_blocks_pdf_produces_image_blocks() {
+    fn build_blocks_pdf_produces_text_block_for_textual_pdf() {
         let blocks = build_blocks(TEST_PDF).expect("build_blocks PDF 应成功");
 
-        assert!(
-            blocks.len() >= 1,
-            "PDF 至少应产生 1 个 block，实际 {}",
+        assert_eq!(
+            blocks.len(),
+            1,
+            "文字型 PDF 应产生恰好 1 个 Text block，实际 {} 个",
             blocks.len()
         );
 
-        for (i, block) in blocks.iter().enumerate() {
-            match block {
-                ContentBlock::Image { data_url } => {
-                    assert!(
-                        data_url.starts_with("data:image/png;base64,"),
-                        "第 {} 个 block 的 data_url 应以 data:image/png;base64, 开头，实际: {}",
-                        i + 1,
-                        &data_url[..data_url.len().min(60)]
-                    );
-                }
-                ContentBlock::Text(_) => {
-                    panic!("PDF 路线不应产生 Text block，第 {} 个 block 却是 Text", i + 1);
-                }
+        match &blocks[0] {
+            ContentBlock::Text(text) => {
+                assert!(
+                    !text.trim().is_empty(),
+                    "Text block 不应为空"
+                );
+                // 确认包含字母（中文字符或英文字母，排除全空白/噪声）
+                let has_alphanumeric = text.chars().any(|c| c.is_alphabetic());
+                assert!(
+                    has_alphanumeric,
+                    "Text block 应含字母字符，实际前 200 字: {}",
+                    &text.chars().take(200).collect::<String>()
+                );
+                println!(
+                    "build_blocks PDF Text block: {} 字符，前 300 字:\n{}",
+                    text.chars().count(),
+                    &text.chars().take(300).collect::<String>()
+                );
+            }
+            ContentBlock::Image { .. } => {
+                panic!("文字型 PDF 应返回 Text block，但返回了 Image block");
             }
         }
-
-        println!(
-            "build_blocks PDF: {} 页，首块 data_url 长度 {}",
-            blocks.len(),
-            match &blocks[0] {
-                ContentBlock::Image { data_url } => data_url.len(),
-                _ => 0,
-            }
-        );
     }
 
     #[test]

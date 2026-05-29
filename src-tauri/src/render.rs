@@ -53,6 +53,25 @@ fn get_pdfium() -> Result<&'static Pdfium, String> {
 /// 保证同一时刻只有一个渲染在进行(否则并发 command 会数据竞争/崩溃)。
 static RENDER_LOCK: Mutex<()> = Mutex::new(());
 
+/// 抽取 PDF 全部文本（文字型 PDF 有文本层；扫描版会返回空或极少字符）。
+/// 使用 RENDER_LOCK 与渲染共享，保证 pdfium 非线程安全访问串行化。
+pub fn extract_pdf_text(pdf_path: &str) -> Result<String, String> {
+    let _guard = RENDER_LOCK.lock().map_err(|e| format!("渲染锁中毒: {e}"))?;
+    let pdfium = get_pdfium()?;
+    let document = pdfium
+        .load_pdf_from_file(pdf_path, None)
+        .map_err(|e| format!("打开 PDF 失败: {e}"))?;
+    let mut out = String::new();
+    for page in document.pages().iter() {
+        let text = page
+            .text()
+            .map_err(|e| format!("读取页面文本失败: {e}"))?;
+        out.push_str(&text.all());
+        out.push_str("\n\n");
+    }
+    Ok(out)
+}
+
 /// 把 PDF 每页渲染成 PNG 字节。scale 提高分辨率以利 OCR（如 2.0）。
 pub fn render_pdf_to_pngs(pdf_path: &str, scale: f32) -> Result<Vec<Vec<u8>>, String> {
     let _render_guard = RENDER_LOCK.lock().map_err(|e| format!("渲染锁中毒: {e}"))?;
@@ -92,6 +111,20 @@ mod tests {
 
     const TEST_PDF: &str = r"C:\Users\sxl\Documents\ListenForge\Unit 2小练习.pdf";
     const PNG_MAGIC: [u8; 4] = [0x89, 0x50, 0x4E, 0x47];
+
+    #[test]
+    #[serial]
+    fn extract_pdf_text_returns_text() {
+        let text = extract_pdf_text(TEST_PDF).expect("extract_pdf_text 应成功");
+        let char_count = text.trim().chars().count();
+        assert!(
+            char_count >= 50,
+            "文字型 PDF 应提取到至少 50 个字符，实际 {}",
+            char_count
+        );
+        let preview: String = text.chars().take(2000).collect();
+        println!("=== extract_pdf_text 前 2000 字 ===\n{preview}\n=== 共 {char_count} 字符 ===");
+    }
 
     #[test]
     #[serial]
