@@ -12,7 +12,7 @@
 //! 3. Concatenates all raw MP3 byte streams — no decoding, no re-encoding,
 //!    no C libraries needed.
 
-use crate::model::Project;
+use crate::model::{Project, VoiceConfig};
 use crate::ssml::strip_chinese_parens;
 use crate::tts::TtsProvider;
 
@@ -42,6 +42,38 @@ pub(crate) fn silence_mp3(ms: u32) -> Vec<u8> {
         out.extend(std::iter::repeat(0u8).take(FRAME_SIZE - 4));
     }
     out
+}
+
+// ── Speaker → voice mapping ───────────────────────────────────────────────────
+
+/// 根据 speaker 选择合成声音。
+///
+/// - `speaker = None` → `vc.en_voice`(旁白/非对话)
+/// - `speaker = Some(s)`:按「首次出现顺序」分配:
+///   - 第 0 个出现的说话人 → `vc.teacher_voice`
+///   - 第 1 个出现的说话人 → `vc.student_voice`
+///   - 第 2 个及之后        → `vc.en_voice`
+///
+/// `seen` 记录已见过的说话人(有序,唯一);调用者在每个 part 开始时传入空 Vec
+/// 以保证角色分配在 part 内一致、跨 part 独立。
+fn voice_for_speaker<'a>(
+    speaker: &Option<String>,
+    seen: &mut Vec<String>,
+    vc: &'a VoiceConfig,
+) -> &'a str {
+    match speaker {
+        None => &vc.en_voice,
+        Some(s) => {
+            if !seen.contains(s) {
+                seen.push(s.clone());
+            }
+            match seen.iter().position(|x| x == s) {
+                Some(0) => &vc.teacher_voice,
+                Some(1) => &vc.student_voice,
+                _ => &vc.en_voice,
+            }
+        }
+    }
 }
 
 // ── Main pipeline ─────────────────────────────────────────────────────────────
@@ -101,6 +133,10 @@ pub async fn generate_project_audio(
         }
 
         // ── Items ─────────────────────────────────────────────────────────
+        // Per-part speaker order; reset for each part so A/B assignments are
+        // consistent within a part but independent across parts.
+        let mut seen_speakers: Vec<String> = Vec::new();
+
         for (item_idx, item) in part.items.iter().enumerate() {
             if !item.enabled {
                 continue;
@@ -108,7 +144,7 @@ pub async fn generate_project_audio(
 
             let item_label = item_idx + 1; // 1-based for error messages
 
-            // Number label (read at base_rate − 5)
+            // Number label (read at base_rate − 5) — always narrator (en_voice).
             if item.read_number {
                 if let Some(n) = item.number {
                     let num_text = format!("Number {n}.");
@@ -126,20 +162,23 @@ pub async fn generate_project_audio(
                 }
             }
 
+            // Body text: use speaker-assigned voice when speaker is set.
+            let body_voice = voice_for_speaker(&item.speaker, &mut seen_speakers, vc);
+
             // Body text (first reading)
             let bytes = provider
-                .synthesize(&item.text, &vc.en_voice, vc.rate, vc.pitch, vc.volume)
+                .synthesize(&item.text, body_voice, vc.rate, vc.pitch, vc.volume)
                 .await
                 .map_err(|e| {
                     format!("en TTS part {part_label} item {item_label} (text): {e}")
                 })?;
             part_mp3.extend_from_slice(&bytes);
 
-            // Optional second reading (repeat ≥ 2)
+            // Optional second reading (repeat ≥ 2) — same voice as first reading.
             if item.repeat >= 2 {
                 part_mp3.extend_from_slice(&silence_mp3(1500));
                 let bytes2 = provider
-                    .synthesize(&item.text, &vc.en_voice, vc.rate, vc.pitch, vc.volume)
+                    .synthesize(&item.text, body_voice, vc.rate, vc.pitch, vc.volume)
                     .await
                     .map_err(|e| {
                         format!(
@@ -305,6 +344,70 @@ mod tests {
         };
         let name = sanitize_part_name(&part);
         assert!(name.len() <= 40, "should be truncated: {}", name.len());
+    }
+
+    // ── voice_for_speaker ─────────────────────────────────────────────────
+
+    fn make_vc() -> crate::model::VoiceConfig {
+        crate::model::VoiceConfig {
+            provider: "edge".into(),
+            en_voice: "en-voice".into(),
+            zh_voice: "zh-voice".into(),
+            rate: 0,
+            pitch: 0,
+            volume: 100,
+            teacher_voice: "teacher-voice".into(),
+            student_voice: "student-voice".into(),
+        }
+    }
+
+    #[test]
+    fn voice_for_speaker_none_returns_en_voice() {
+        let vc = make_vc();
+        let mut seen: Vec<String> = Vec::new();
+        assert_eq!(voice_for_speaker(&None, &mut seen, &vc), "en-voice");
+        // seen should remain empty
+        assert!(seen.is_empty());
+    }
+
+    #[test]
+    fn voice_for_speaker_first_speaker_is_teacher() {
+        let vc = make_vc();
+        let mut seen: Vec<String> = Vec::new();
+        let v = voice_for_speaker(&Some("A".into()), &mut seen, &vc);
+        assert_eq!(v, "teacher-voice");
+    }
+
+    #[test]
+    fn voice_for_speaker_second_speaker_is_student() {
+        let vc = make_vc();
+        let mut seen: Vec<String> = Vec::new();
+        voice_for_speaker(&Some("A".into()), &mut seen, &vc);
+        let v = voice_for_speaker(&Some("B".into()), &mut seen, &vc);
+        assert_eq!(v, "student-voice");
+    }
+
+    #[test]
+    fn voice_for_speaker_same_speaker_stable() {
+        let vc = make_vc();
+        let mut seen: Vec<String> = Vec::new();
+        // A first → teacher
+        voice_for_speaker(&Some("A".into()), &mut seen, &vc);
+        // B second → student
+        voice_for_speaker(&Some("B".into()), &mut seen, &vc);
+        // A again → still teacher
+        let v = voice_for_speaker(&Some("A".into()), &mut seen, &vc);
+        assert_eq!(v, "teacher-voice");
+    }
+
+    #[test]
+    fn voice_for_speaker_third_speaker_is_en_voice() {
+        let vc = make_vc();
+        let mut seen: Vec<String> = Vec::new();
+        voice_for_speaker(&Some("A".into()), &mut seen, &vc);
+        voice_for_speaker(&Some("B".into()), &mut seen, &vc);
+        let v = voice_for_speaker(&Some("C".into()), &mut seen, &vc);
+        assert_eq!(v, "en-voice");
     }
 
     // ── E2E (network — run with `cargo test -- --ignored`) ────────────────
