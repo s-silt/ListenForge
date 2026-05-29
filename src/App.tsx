@@ -8,9 +8,12 @@ function App() {
   const [project, setProject] = useState<Project | null>(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [generating, setGenerating] = useState(false);
+  const [generatedFiles, setGeneratedFiles] = useState<string[]>([]);
 
   async function pickAndExtract() {
     setError("");
+    setGeneratedFiles([]);
     const path = await open({
       filters: [{ name: "练习卷", extensions: ["pdf", "docx", "doc", "jpg", "jpeg", "png", "webp"] }],
     });
@@ -25,6 +28,28 @@ function App() {
     }
   }
 
+  async function generateAudio() {
+    if (!project) return;
+    setError("");
+    setGeneratedFiles([]);
+
+    const outputDir = await open({ directory: true });
+    if (typeof outputDir !== "string") return;
+
+    setGenerating(true);
+    try {
+      const files = await invoke<string[]>("generate_audio", {
+        project,
+        outputDir,
+      });
+      setGeneratedFiles(files);
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setGenerating(false);
+    }
+  }
+
   return (
     <Layout
       topBar={
@@ -33,10 +58,19 @@ function App() {
           <button
             className="ml-auto border px-2 py-1 text-sm"
             onClick={pickAndExtract}
-            disabled={loading}
+            disabled={loading || generating}
           >
             {loading ? "提取中…" : "打开练习卷"}
           </button>
+          {project && (
+            <button
+              className="ml-2 border px-2 py-1 text-sm bg-blue-50 hover:bg-blue-100"
+              onClick={generateAudio}
+              disabled={loading || generating}
+            >
+              {generating ? "生成中…" : "生成音频"}
+            </button>
+          )}
         </>
       }
       left={
@@ -71,7 +105,20 @@ function App() {
         )
       }
       right={
-        <div className="text-sm text-muted-foreground">语音 & 导出(待 M3)</div>
+        <div className="text-sm text-muted-foreground space-y-2">
+          {generatedFiles.length > 0 ? (
+            <>
+              <div className="font-medium text-green-700">音频生成完成</div>
+              <ul className="space-y-1">
+                {generatedFiles.map((f) => (
+                  <li key={f} className="break-all">{f}</li>
+                ))}
+              </ul>
+            </>
+          ) : (
+            <span>语音 & 导出</span>
+          )}
+        </div>
       }
     />
   );

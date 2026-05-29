@@ -148,8 +148,132 @@ impl Default for EdgeTtsProvider {
     }
 }
 
+/// Core WebSocket synthesis — sends `ssml` verbatim to the Edge TTS endpoint
+/// and returns the collected MP3 bytes.
+///
+/// This is an internal helper shared by both `synthesize` and `synthesize_ssml`.
+async fn send_ssml_and_collect(ssml: &str) -> Result<Vec<u8>, String> {
+    let sec_ms_gec = generate_sec_ms_gec();
+    let conn_id = connection_id();
+
+    let url = format!(
+        "{WSS_URL}&ConnectionId={conn_id}\
+         &Sec-MS-GEC={sec_ms_gec}\
+         &Sec-MS-GEC-Version={SEC_MS_GEC_VERSION}"
+    );
+
+    let mut request = url
+        .as_str()
+        .into_client_request()
+        .map_err(|e| format!("build request: {e}"))?;
+
+    let headers = request.headers_mut();
+    headers.insert(
+        "User-Agent",
+        HeaderValue::from_static(
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) \
+             AppleWebKit/537.36 (KHTML, like Gecko) \
+             Chrome/143.0.0.0 Safari/537.36 Edg/143.0.0.0",
+        ),
+    );
+    headers.insert(
+        "Accept-Encoding",
+        HeaderValue::from_static("gzip, deflate, br"),
+    );
+    headers.insert(
+        "Accept-Language",
+        HeaderValue::from_static("en-US,en;q=0.9"),
+    );
+    headers.insert("Pragma", HeaderValue::from_static("no-cache"));
+    headers.insert("Cache-Control", HeaderValue::from_static("no-cache"));
+    headers.insert(
+        "Origin",
+        HeaderValue::from_static(
+            "chrome-extension://jdiccldimpdaibmpdkjnbmckianbfold",
+        ),
+    );
+
+    let tls_connector = native_tls::TlsConnector::new()
+        .map_err(|e| format!("tls connector: {e}"))?;
+    let connector = Connector::NativeTls(tls_connector);
+
+    let (mut ws, _) =
+        connect_async_tls_with_config(request, None, false, Some(connector))
+            .await
+            .map_err(|e| format!("websocket connect: {e}"))?;
+
+    let ts = timestamp_str();
+    let config_body = build_speech_config();
+    let speech_config_msg = format!(
+        "X-Timestamp:{ts}\r\n\
+         Content-Type:application/json; charset=utf-8\r\n\
+         Path:speech.config\r\n\r\n\
+         {config_body}"
+    );
+    ws.send(Message::Text(speech_config_msg.into()))
+        .await
+        .map_err(|e| format!("send speech.config: {e}"))?;
+
+    let request_id = connection_id();
+    let synthesis_msg = format!(
+        "X-RequestId:{request_id}\r\n\
+         Content-Type:application/ssml+xml\r\n\
+         X-Timestamp:{ts}\r\n\
+         Path:ssml\r\n\r\n\
+         {ssml}"
+    );
+    ws.send(Message::Text(synthesis_msg.into()))
+        .await
+        .map_err(|e| format!("send ssml: {e}"))?;
+
+    let mut audio_buf: Vec<u8> = Vec::new();
+
+    loop {
+        let msg = ws
+            .next()
+            .await
+            .ok_or_else(|| "WebSocket closed before turn.end".to_string())?
+            .map_err(|e| format!("websocket recv: {e}"))?;
+
+        match msg {
+            Message::Binary(data) => {
+                if data.len() < 2 {
+                    continue;
+                }
+                let header_len = u16::from_be_bytes([data[0], data[1]]) as usize;
+                let hdr_end = 2 + header_len;
+                if hdr_end > data.len() {
+                    continue;
+                }
+                let header_str =
+                    std::str::from_utf8(&data[2..hdr_end]).unwrap_or("");
+                if header_str.contains("Path:audio") {
+                    audio_buf.extend_from_slice(&data[hdr_end..]);
+                }
+            }
+            Message::Text(text_msg) => {
+                if text_msg.contains("Path:turn.end") {
+                    break;
+                }
+            }
+            Message::Close(_) => {
+                break;
+            }
+            _ => {}
+        }
+    }
+
+    if audio_buf.is_empty() {
+        return Err("No audio data received from Edge TTS".to_string());
+    }
+
+    Ok(audio_buf)
+}
+
 #[async_trait::async_trait]
 impl TtsProvider for EdgeTtsProvider {
+    /// Synthesise plain `text` by wrapping it in a `<prosody>` SSML envelope
+    /// and delegating to the shared WebSocket helper.
     async fn synthesize(
         &self,
         text: &str,
@@ -158,139 +282,17 @@ impl TtsProvider for EdgeTtsProvider {
         pitch: i32,
         volume: u32,
     ) -> Result<Vec<u8>, String> {
-        let sec_ms_gec = generate_sec_ms_gec();
-        let conn_id = connection_id();
-
-        // Build the full URL with dynamic query params.
-        let url = format!(
-            "{WSS_URL}&ConnectionId={conn_id}\
-             &Sec-MS-GEC={sec_ms_gec}\
-             &Sec-MS-GEC-Version={SEC_MS_GEC_VERSION}"
-        );
-
-        // Build the HTTP upgrade request with required headers.
-        let mut request = url
-            .as_str()
-            .into_client_request()
-            .map_err(|e| format!("build request: {e}"))?;
-
-        let headers = request.headers_mut();
-        headers.insert(
-            "User-Agent",
-            HeaderValue::from_static(
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) \
-                 AppleWebKit/537.36 (KHTML, like Gecko) \
-                 Chrome/143.0.0.0 Safari/537.36 Edg/143.0.0.0",
-            ),
-        );
-        headers.insert(
-            "Accept-Encoding",
-            HeaderValue::from_static("gzip, deflate, br"),
-        );
-        headers.insert(
-            "Accept-Language",
-            HeaderValue::from_static("en-US,en;q=0.9"),
-        );
-        headers.insert("Pragma", HeaderValue::from_static("no-cache"));
-        headers.insert("Cache-Control", HeaderValue::from_static("no-cache"));
-        headers.insert(
-            "Origin",
-            HeaderValue::from_static(
-                "chrome-extension://jdiccldimpdaibmpdkjnbmckianbfold",
-            ),
-        );
-
-        // Use native-tls connector (Windows Schannel).
-        let tls_connector = native_tls::TlsConnector::new()
-            .map_err(|e| format!("tls connector: {e}"))?;
-        let connector = Connector::NativeTls(tls_connector);
-
-        let (mut ws, _) =
-            connect_async_tls_with_config(request, None, false, Some(connector))
-                .await
-                .map_err(|e| format!("websocket connect: {e}"))?;
-
-        // ── 1. Send speech.config ─────────────────────────────────────────
-        let ts = timestamp_str();
-        let config_body = build_speech_config();
-        let speech_config_msg = format!(
-            "X-Timestamp:{ts}\r\n\
-             Content-Type:application/json; charset=utf-8\r\n\
-             Path:speech.config\r\n\r\n\
-             {config_body}"
-        );
-        ws.send(Message::Text(speech_config_msg.into()))
-            .await
-            .map_err(|e| format!("send speech.config: {e}"))?;
-
-        // ── 2. Send SSML synthesis request ────────────────────────────────
         let ssml = build_ssml(text, voice_id, rate, pitch, volume);
-        let request_id = connection_id();
-        let synthesis_msg = format!(
-            "X-RequestId:{request_id}\r\n\
-             Content-Type:application/ssml+xml\r\n\
-             X-Timestamp:{ts}\r\n\
-             Path:ssml\r\n\r\n\
-             {ssml}"
-        );
-        ws.send(Message::Text(synthesis_msg.into()))
-            .await
-            .map_err(|e| format!("send ssml: {e}"))?;
+        send_ssml_and_collect(&ssml).await
+    }
 
-        // ── 3. Collect audio frames ───────────────────────────────────────
-        let mut audio_buf: Vec<u8> = Vec::new();
-
-        loop {
-            let msg = ws
-                .next()
-                .await
-                .ok_or_else(|| "WebSocket closed before turn.end".to_string())?
-                .map_err(|e| format!("websocket recv: {e}"))?;
-
-            match msg {
-                Message::Binary(data) => {
-                    // Binary frame layout:
-                    //   [0..2]  big-endian u16 = header section length
-                    //   [2..2+hlen]  ASCII headers (one per line, like HTTP)
-                    //   [2+hlen..]   raw MP3 bytes
-                    if data.len() < 2 {
-                        continue;
-                    }
-                    let header_len = u16::from_be_bytes([data[0], data[1]]) as usize;
-                    let hdr_end = 2 + header_len;
-                    if hdr_end > data.len() {
-                        continue;
-                    }
-                    let header_str =
-                        std::str::from_utf8(&data[2..hdr_end]).unwrap_or("");
-
-                    // Only collect frames that carry audio data.
-                    if header_str.contains("Path:audio") {
-                        audio_buf.extend_from_slice(&data[hdr_end..]);
-                    }
-                }
-
-                Message::Text(text_msg) => {
-                    // "Path:turn.end" signals end of synthesis for this request.
-                    if text_msg.contains("Path:turn.end") {
-                        break;
-                    }
-                    // Other text messages (turn.start, response, etc.) are ignored.
-                }
-
-                Message::Close(_) => {
-                    break;
-                }
-
-                _ => {}
-            }
-        }
-
-        if audio_buf.is_empty() {
-            return Err("No audio data received from Edge TTS".to_string());
-        }
-
-        Ok(audio_buf)
+    /// Send a pre-built SSML document directly — no additional wrapping.
+    async fn synthesize_ssml(
+        &self,
+        ssml: &str,
+        _voice_id: &str,
+    ) -> Result<Vec<u8>, String> {
+        send_ssml_and_collect(ssml).await
     }
 }
 

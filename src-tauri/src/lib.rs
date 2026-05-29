@@ -1,9 +1,12 @@
 pub mod assembler;
+pub mod audio;
+pub mod export;
 pub mod input_builder;
 pub mod llm;
 pub mod model;
 pub mod persistence;
 pub mod render;
+pub mod ssml;
 pub mod tts;
 
 use model::{Project, SourceType};
@@ -69,6 +72,13 @@ fn load_project_cmd(path: String) -> Result<Project, String> {
     persistence::load_project(&path)
 }
 
+#[tauri::command]
+async fn generate_audio(project: model::Project, output_dir: String) -> Result<Vec<String>, String> {
+    let provider = tts::edge::EdgeTtsProvider::new();
+    let (full, parts) = audio::generate_project_audio(&project, &provider).await?;
+    export::save_audio(&full, &parts, &output_dir, &project.title)
+}
+
 #[cfg(test)]
 mod cmd_tests {
     use super::*;
@@ -105,7 +115,8 @@ pub fn run() {
             save_project_cmd,
             load_project_cmd,
             demo_progress,
-            extract_script
+            extract_script,
+            generate_audio
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

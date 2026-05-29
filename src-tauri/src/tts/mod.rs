@@ -20,6 +20,24 @@ pub trait TtsProvider: Send + Sync {
         pitch: i32,
         volume: u32,
     ) -> Result<Vec<u8>, String>;
+
+    /// Send a **pre-built** SSML document directly to the TTS engine.
+    ///
+    /// The caller is responsible for constructing a valid `<speak>…</speak>`
+    /// document.  The implementation must NOT wrap it in an additional
+    /// `<prosody>` or `<speak>` element — it is sent verbatim.
+    ///
+    /// `voice_id` is used only for routing / connection parameters; the actual
+    /// voice selection lives inside the SSML `<voice name="…">` element.
+    ///
+    /// Default implementation delegates to [`TtsProvider::synthesize`] with
+    /// the SSML as the text and rate/pitch/volume set to neutral values
+    /// (`0, 0, 100`).  Backends that can accept raw SSML should override this.
+    async fn synthesize_ssml(
+        &self,
+        ssml: &str,
+        voice_id: &str,
+    ) -> Result<Vec<u8>, String>;
 }
 
 /// A single pre-configured voice.
