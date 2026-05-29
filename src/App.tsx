@@ -5,6 +5,7 @@ import { Layout } from "@/components/Layout";
 import { ScriptEditor } from "@/components/ScriptEditor";
 import { VoiceSettings } from "@/components/VoiceSettings";
 import { AiSettings } from "@/components/AiSettings";
+import { TemplatePicker } from "@/components/TemplatePicker";
 import type { Project } from "@/types";
 
 function App() {
@@ -148,18 +149,16 @@ function App() {
       }
       right={
         <div className="space-y-4">
-          {project ? (
-            <VoiceSettings
-              project={project}
-              onChange={handleProjectChange}
-              generatedFiles={generatedFiles}
-              saveStatus={saveStatus}
-            />
-          ) : (
-            <div className="text-sm text-muted-foreground">语音 &amp; 导出</div>
-          )}
+          <VoiceSettings
+            project={project}
+            onChange={handleProjectChange}
+            generatedFiles={generatedFiles}
+            saveStatus={saveStatus}
+          />
           <hr className="border-border" />
           <AiSettings />
+          <hr className="border-border" />
+          <TemplatePicker />
         </div>
       }
     />

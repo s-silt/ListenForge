@@ -106,6 +106,11 @@ fn save_llm_config(base_url: String, model: String, api_key: Option<String>) -> 
     llm::write_dotenv(&base_url, &model, api_key.as_deref())
 }
 
+#[tauri::command]
+fn get_voices() -> Vec<tts::Voice> {
+    tts::preset_voices()
+}
+
 #[cfg(test)]
 mod cmd_tests {
     use super::*;
@@ -148,7 +153,8 @@ pub fn run() {
             save_llm_config,
             get_prompt_templates,
             save_prompt_selection,
-            save_custom_prompt
+            save_custom_prompt,
+            get_voices
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

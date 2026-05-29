@@ -41,7 +41,7 @@ pub trait TtsProvider: Send + Sync {
 }
 
 /// A single pre-configured voice.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 pub struct Voice {
     /// Neural voice name accepted by the Microsoft Edge TTS endpoint,
     /// e.g. `"en-GB-SoniaNeural"`.

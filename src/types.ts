@@ -76,3 +76,15 @@ export interface LlmConfigView {
   model: string;
   has_api_key: boolean;
 }
+
+export interface PromptTemplate {
+  id: string;
+  name: string;
+  content: string;
+  builtin: boolean;
+}
+
+export interface Voice {
+  id: string;
+  label: string;
+}

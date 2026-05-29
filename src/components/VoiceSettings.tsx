@@ -1,24 +1,9 @@
-import type { Project, VoiceConfig } from "@/types";
-
-const EN_VOICES = [
-  "en-US-AriaNeural",
-  "en-US-GuyNeural",
-  "en-US-JennyNeural",
-  "en-GB-LibbyNeural",
-  "en-GB-RyanNeural",
-  "en-AU-NatashaNeural",
-];
-
-const ZH_VOICES = [
-  "zh-CN-XiaoxiaoNeural",
-  "zh-CN-YunxiNeural",
-  "zh-CN-XiaohanNeural",
-  "zh-CN-YunjianNeural",
-  "zh-TW-HsiaoChenNeural",
-];
+import { useState, useEffect } from "react";
+import { invoke } from "@tauri-apps/api/core";
+import type { Project, VoiceConfig, Voice } from "@/types";
 
 interface VoiceSettingsProps {
-  project: Project;
+  project: Project | null;
   onChange: (updated: Project) => void;
   generatedFiles: string[];
   saveStatus: string;
@@ -28,70 +13,118 @@ function patch(project: Project, vc: Partial<VoiceConfig>): Project {
   return { ...project, voice_config: { ...project.voice_config, ...vc } };
 }
 
+function VoiceSelect({
+  label,
+  value,
+  voices,
+  disabled,
+  onChange,
+}: {
+  label: string;
+  value: string;
+  voices: Voice[];
+  disabled: boolean;
+  onChange: (v: string) => void;
+}) {
+  return (
+    <div className="space-y-1">
+      <label className="text-xs text-muted-foreground">{label}</label>
+      <select
+        value={value}
+        disabled={disabled}
+        onChange={(e) => onChange(e.target.value)}
+        className="w-full rounded border border-input bg-background px-2 py-1 text-xs outline-none focus:border-ring disabled:opacity-50"
+      >
+        {voices.map((v) => (
+          <option key={v.id} value={v.id}>
+            {v.label}
+          </option>
+        ))}
+        {/* keep current value if not in list */}
+        {!voices.some((v) => v.id === value) && value && (
+          <option value={value}>{value}</option>
+        )}
+      </select>
+    </div>
+  );
+}
+
 export function VoiceSettings({
   project,
   onChange,
   generatedFiles,
   saveStatus,
 }: VoiceSettingsProps) {
-  const vc = project.voice_config;
+  const [voices, setVoices] = useState<Voice[]>([]);
+
+  useEffect(() => {
+    invoke<Voice[]>("get_voices")
+      .then(setVoices)
+      .catch(() => {
+        // Fallback: leave voices empty; dropdowns will still show current value
+      });
+  }, []);
+
+  const disabled = project === null;
+  const vc = project?.voice_config;
 
   return (
     <div className="space-y-4 text-sm">
       <div className="font-medium">语音设置</div>
 
-      {/* en_voice */}
-      <div className="space-y-1">
-        <label className="text-xs text-muted-foreground">英文声音</label>
-        <select
-          value={vc.en_voice}
-          onChange={(e) => onChange(patch(project, { en_voice: e.target.value }))}
-          className="w-full rounded border border-input bg-background px-2 py-1 text-xs outline-none focus:border-ring"
-        >
-          {EN_VOICES.map((v) => (
-            <option key={v} value={v}>
-              {v}
-            </option>
-          ))}
-          {/* keep current if not in list */}
-          {!EN_VOICES.includes(vc.en_voice) && (
-            <option value={vc.en_voice}>{vc.en_voice}</option>
-          )}
-        </select>
+      {/* 英文声音 */}
+      <VoiceSelect
+        label="英文声音"
+        value={vc?.en_voice ?? ""}
+        voices={voices}
+        disabled={disabled}
+        onChange={(v) => project && onChange(patch(project, { en_voice: v }))}
+      />
+
+      {/* 中文声音 */}
+      <VoiceSelect
+        label="中文声音"
+        value={vc?.zh_voice ?? ""}
+        voices={voices}
+        disabled={disabled}
+        onChange={(v) => project && onChange(patch(project, { zh_voice: v }))}
+      />
+
+      {/* 对话角色声音 */}
+      <div className="space-y-2">
+        <div className="text-xs font-medium text-muted-foreground">对话角色声音</div>
+        <VoiceSelect
+          label="老师 / 提问角色"
+          value={vc?.teacher_voice ?? ""}
+          voices={voices}
+          disabled={disabled}
+          onChange={(v) => project && onChange(patch(project, { teacher_voice: v }))}
+        />
+        <VoiceSelect
+          label="学生 / 回答角色"
+          value={vc?.student_voice ?? ""}
+          voices={voices}
+          disabled={disabled}
+          onChange={(v) => project && onChange(patch(project, { student_voice: v }))}
+        />
       </div>
 
-      {/* zh_voice */}
-      <div className="space-y-1">
-        <label className="text-xs text-muted-foreground">中文声音</label>
-        <select
-          value={vc.zh_voice}
-          onChange={(e) => onChange(patch(project, { zh_voice: e.target.value }))}
-          className="w-full rounded border border-input bg-background px-2 py-1 text-xs outline-none focus:border-ring"
-        >
-          {ZH_VOICES.map((v) => (
-            <option key={v} value={v}>
-              {v}
-            </option>
-          ))}
-          {!ZH_VOICES.includes(vc.zh_voice) && (
-            <option value={vc.zh_voice}>{vc.zh_voice}</option>
-          )}
-        </select>
-      </div>
-
-      {/* rate */}
+      {/* 语速 */}
       <div className="space-y-1">
         <label className="text-xs text-muted-foreground">
-          语速 ({vc.rate >= 0 ? "+" : ""}{vc.rate}%)
+          语速 ({vc ? (vc.rate >= 0 ? "+" : "") + vc.rate : "0"}%)
         </label>
         <input
           type="range"
           min={-50}
           max={50}
           step={5}
-          value={vc.rate}
-          onChange={(e) => onChange(patch(project, { rate: Number(e.target.value) }))}
-          className="w-full accent-primary"
+          value={vc?.rate ?? 0}
+          disabled={disabled}
+          onChange={(e) =>
+            project && onChange(patch(project, { rate: Number(e.target.value) }))
+          }
+          className="w-full accent-primary disabled:opacity-50"
         />
       </div>
 
