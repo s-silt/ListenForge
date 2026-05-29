@@ -4,6 +4,7 @@ pub mod llm;
 pub mod model;
 pub mod persistence;
 pub mod render;
+pub mod tts;
 
 use model::{Project, SourceType};
 use std::path::Path;
