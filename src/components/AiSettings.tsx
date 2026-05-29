@@ -1,11 +1,13 @@
 import { useState, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { useTranslation } from "react-i18next";
 import type { LlmConfigView } from "@/types";
 
 const DEFAULT_BASE_URL = "https://api.openai.com/v1";
 const DEFAULT_MODEL = "gpt-5.4-mini";
 
 export function AiSettings() {
+  const { t } = useTranslation();
   const [baseUrl, setBaseUrl] = useState(DEFAULT_BASE_URL);
   const [model, setModel] = useState(DEFAULT_MODEL);
   const [newKey, setNewKey] = useState("");
@@ -20,12 +22,13 @@ export function AiSettings() {
       setModel(cfg.model);
       setHasApiKey(cfg.has_api_key);
     } catch (e) {
-      setStatus(`加载配置失败: ${String(e)}`);
+      setStatus(`${t("ai.loadFailed")}: ${String(e)}`);
     }
   }
 
   useEffect(() => {
     loadConfig();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   async function handleSave() {
@@ -38,24 +41,37 @@ export function AiSettings() {
         apiKey: newKey.trim() !== "" ? newKey : null,
       });
       setNewKey("");
-      setStatus("设置已保存");
+      setStatus(t("ai.savedOk"));
       await loadConfig();
     } catch (e) {
-      setStatus(`保存失败: ${String(e)}`);
+      setStatus(`${t("ai.saveFailed")}: ${String(e)}`);
     } finally {
       setSaving(false);
     }
   }
 
-  const keyPlaceholder = hasApiKey ? "已配置(留空不改)" : "未配置,请填入 Key";
+  const keyPlaceholder = hasApiKey ? t("ai.keyConfigured") : t("ai.keyMissing");
+
+  // Determine status color: error if contains loadFailed/saveFailed keys
+  const isError = status.startsWith(t("ai.saveFailed")) || status.startsWith(t("ai.loadFailed"));
 
   return (
     <div className="space-y-3 text-sm">
-      <div className="font-medium">AI 设置</div>
+      <div>
+        <div className="font-medium">{t("ai.title")}</div>
+        <div className="text-xs text-muted-foreground mt-0.5">{t("ai.titleHelper")}</div>
+      </div>
 
-      {/* API 地址 */}
+      {/* First-use warning when no API key configured */}
+      {!hasApiKey && (
+        <div className="rounded border border-amber-300 bg-amber-50 px-2 py-1.5 text-xs text-amber-700">
+          {t("ai.firstUseWarning")}
+        </div>
+      )}
+
+      {/* API URL */}
       <div className="space-y-1">
-        <label className="text-xs text-muted-foreground">API 地址</label>
+        <label className="text-xs text-muted-foreground">{t("ai.apiUrl")}</label>
         <input
           type="text"
           value={baseUrl}
@@ -65,9 +81,9 @@ export function AiSettings() {
         />
       </div>
 
-      {/* 模型 */}
+      {/* Model */}
       <div className="space-y-1">
-        <label className="text-xs text-muted-foreground">模型</label>
+        <label className="text-xs text-muted-foreground">{t("ai.model")}</label>
         <input
           type="text"
           value={model}
@@ -79,7 +95,7 @@ export function AiSettings() {
 
       {/* API Key */}
       <div className="space-y-1">
-        <label className="text-xs text-muted-foreground">API Key</label>
+        <label className="text-xs text-muted-foreground">{t("ai.apiKey")}</label>
         <input
           type="password"
           value={newKey}
@@ -90,22 +106,20 @@ export function AiSettings() {
         />
       </div>
 
-      {/* 保存按钮 */}
+      {/* Save button */}
       <button
         onClick={handleSave}
         disabled={saving}
         className="w-full rounded border px-2 py-1 text-xs bg-blue-50 hover:bg-blue-100 disabled:opacity-50"
       >
-        {saving ? "保存中…" : "保存设置"}
+        {saving ? t("ai.saving") : t("ai.save")}
       </button>
 
-      {/* 状态提示 */}
+      {/* Status */}
       {status && (
         <div
           className={`break-all rounded px-2 py-1 text-xs ${
-            status.startsWith("保存失败") || status.startsWith("加载配置失败")
-              ? "bg-red-50 text-red-600"
-              : "bg-green-50 text-green-700"
+            isError ? "bg-red-50 text-red-600" : "bg-green-50 text-green-700"
           }`}
         >
           {status}

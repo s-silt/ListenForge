@@ -1,4 +1,5 @@
 import { useCallback } from "react";
+import { useTranslation } from "react-i18next";
 import type { Project, Part, Item } from "@/types";
 import { cn } from "@/lib/utils";
 
@@ -70,6 +71,8 @@ interface ItemRowProps {
 }
 
 function ItemRow({ item, isFirst, isLast, onUpdate, onMove }: ItemRowProps) {
+  const { t } = useTranslation();
+
   const GAP_OPTIONS: { value: number; label: string }[] = [
     { value: 500, label: "0.5s" },
     { value: 1000, label: "1s" },
@@ -90,7 +93,7 @@ function ItemRow({ item, isFirst, isLast, onUpdate, onMove }: ItemRowProps) {
         {/* enabled */}
         <input
           type="checkbox"
-          title="启用此句"
+          title={t("editor.enableItem")}
           checked={item.enabled}
           onChange={(e) => onUpdate({ enabled: e.target.checked })}
           className="h-3.5 w-3.5 shrink-0 cursor-pointer accent-primary"
@@ -99,13 +102,13 @@ function ItemRow({ item, isFirst, isLast, onUpdate, onMove }: ItemRowProps) {
         {/* read_number */}
         <input
           type="checkbox"
-          title="朗读题号"
+          title={t("editor.readNumber")}
           checked={item.read_number}
           onChange={(e) => onUpdate({ read_number: e.target.checked })}
           className="h-3.5 w-3.5 shrink-0 cursor-pointer accent-primary"
         />
         <span className="shrink-0 text-xs text-muted-foreground">
-          {item.number != null ? `#${item.number}` : "题号"}
+          {item.number != null ? `#${item.number}` : t("editor.noNumber")}
         </span>
 
         {/* text input */}
@@ -119,7 +122,7 @@ function ItemRow({ item, isFirst, isLast, onUpdate, onMove }: ItemRowProps) {
 
         {/* move up */}
         <button
-          title="上移"
+          title={t("editor.moveUp")}
           disabled={isFirst}
           onClick={() => onMove("up")}
           className="shrink-0 rounded px-1 py-0.5 text-xs hover:bg-muted disabled:pointer-events-none disabled:opacity-30"
@@ -128,7 +131,7 @@ function ItemRow({ item, isFirst, isLast, onUpdate, onMove }: ItemRowProps) {
         </button>
         {/* move down */}
         <button
-          title="下移"
+          title={t("editor.moveDown")}
           disabled={isLast}
           onClick={() => onMove("down")}
           className="shrink-0 rounded px-1 py-0.5 text-xs hover:bg-muted disabled:pointer-events-none disabled:opacity-30"
@@ -141,7 +144,7 @@ function ItemRow({ item, isFirst, isLast, onUpdate, onMove }: ItemRowProps) {
       <div className="mt-1 flex items-center gap-2 pl-8">
         {/* repeat */}
         <div className="flex items-center gap-1">
-          <span className="text-xs text-muted-foreground">读几遍</span>
+          <span className="text-xs text-muted-foreground">{t("editor.repeatLabel")}</span>
           <button
             className={cn(
               "rounded border px-1.5 py-0.5 text-xs",
@@ -168,7 +171,7 @@ function ItemRow({ item, isFirst, isLast, onUpdate, onMove }: ItemRowProps) {
 
         {/* gap_after_ms */}
         <div className="flex items-center gap-1">
-          <span className="text-xs text-muted-foreground">句后停顿</span>
+          <span className="text-xs text-muted-foreground">{t("editor.gapLabel")}</span>
           <select
             value={item.gap_after_ms}
             onChange={(e) => onUpdate({ gap_after_ms: Number(e.target.value) })}
@@ -201,6 +204,8 @@ function PartBlock({
   onUpdateItem,
   onMoveItem,
 }: PartBlockProps) {
+  const { t } = useTranslation();
+
   return (
     <div className="rounded-lg border bg-card p-3 shadow-sm">
       {/* Part header */}
@@ -215,7 +220,7 @@ function PartBlock({
               onChange={(e) => onUpdatePart({ read_label: e.target.checked })}
               className="h-3.5 w-3.5 accent-primary"
             />
-            朗读英文标题
+            {t("editor.readLabel")}
           </label>
           <label className="flex items-center gap-1 text-xs text-muted-foreground cursor-pointer select-none">
             <input
@@ -226,7 +231,7 @@ function PartBlock({
               }
               className="h-3.5 w-3.5 accent-primary"
             />
-            朗读中文说明
+            {t("editor.readZhInstruction")}
           </label>
         </div>
 
@@ -234,7 +239,7 @@ function PartBlock({
         <input
           type="text"
           value={part.zh_instruction ?? ""}
-          placeholder="中文说明(可为空)"
+          placeholder={t("editor.zhInstructionPlaceholder")}
           onChange={(e) =>
             onUpdatePart({
               zh_instruction: e.target.value === "" ? null : e.target.value,

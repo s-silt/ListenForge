@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { useTranslation } from "react-i18next";
 import type { Project, VoiceConfig, Voice } from "@/types";
 
 interface VoiceSettingsProps {
@@ -55,6 +56,7 @@ export function VoiceSettings({
   generatedFiles,
   saveStatus,
 }: VoiceSettingsProps) {
+  const { t } = useTranslation();
   const [voices, setVoices] = useState<Voice[]>([]);
 
   useEffect(() => {
@@ -70,38 +72,41 @@ export function VoiceSettings({
 
   return (
     <div className="space-y-4 text-sm">
-      <div className="font-medium">语音设置</div>
+      <div>
+        <div className="font-medium">{t("voice.title")}</div>
+        <div className="text-xs text-muted-foreground mt-0.5">{t("voice.titleHelper")}</div>
+      </div>
 
-      {/* 英文声音 */}
+      {/* English voice */}
       <VoiceSelect
-        label="英文声音"
+        label={t("voice.enVoice")}
         value={vc?.en_voice ?? ""}
         voices={voices}
         disabled={disabled}
         onChange={(v) => project && onChange(patch(project, { en_voice: v }))}
       />
 
-      {/* 中文声音 */}
+      {/* Chinese voice */}
       <VoiceSelect
-        label="中文声音"
+        label={t("voice.zhVoice")}
         value={vc?.zh_voice ?? ""}
         voices={voices}
         disabled={disabled}
         onChange={(v) => project && onChange(patch(project, { zh_voice: v }))}
       />
 
-      {/* 对话角色声音 */}
+      {/* Dialogue role voices */}
       <div className="space-y-2">
-        <div className="text-xs font-medium text-muted-foreground">对话角色声音</div>
+        <div className="text-xs font-medium text-muted-foreground">{t("voice.dialogRoles")}</div>
         <VoiceSelect
-          label="老师 / 提问角色"
+          label={t("voice.teacher")}
           value={vc?.teacher_voice ?? ""}
           voices={voices}
           disabled={disabled}
           onChange={(v) => project && onChange(patch(project, { teacher_voice: v }))}
         />
         <VoiceSelect
-          label="学生 / 回答角色"
+          label={t("voice.student")}
           value={vc?.student_voice ?? ""}
           voices={voices}
           disabled={disabled}
@@ -109,10 +114,10 @@ export function VoiceSettings({
         />
       </div>
 
-      {/* 语速 */}
+      {/* Rate */}
       <div className="space-y-1">
         <label className="text-xs text-muted-foreground">
-          语速 ({vc ? (vc.rate >= 0 ? "+" : "") + vc.rate : "0"}%)
+          {t("voice.rate")} ({vc ? (vc.rate >= 0 ? "+" : "") + vc.rate : "0"}%)
         </label>
         <input
           type="range"
@@ -142,7 +147,7 @@ export function VoiceSettings({
       {generatedFiles.length > 0 && (
         <div className="space-y-1">
           <div className="font-medium text-green-700 text-xs">
-            音频生成完成 ({generatedFiles.length} 文件)
+            {t("voice.generatedTitle")} ({generatedFiles.length} {t("voice.generatedUnit")})
           </div>
           <ul className="space-y-0.5 text-xs">
             {generatedFiles.map((f) => (
