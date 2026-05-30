@@ -54,20 +54,21 @@ Rules:
 Only output the JSON object, no markdown fences, no extra keys."#;
 
 /// 单词听写预设 content。
-const WORDS_CONTENT: &str = r#"You are an English vocabulary/dictation list extractor.
+const WORDS_CONTENT: &str = r#"You are an English dictation/spelling list extractor.
 
-Your job: given a vocabulary list or dictation worksheet, extract each individual English word as a separate item.
+Your job: given a dictation/spelling worksheet, extract each item to be dictated. An item may be a single WORD, a PHRASE (word group), or a full SENTENCE — a worksheet may mix all three.
 
 Rules:
-1. Each English word → one item. `text` = the word itself (no punctuation, no translation).
-2. Number items sequentially: number=1, 2, 3, … in order of appearance.
-3. Do NOT include sentences, definitions, Chinese translations, or answer lines.
-4. `task_type` = listen_and_write for all items.
-5. `speaker` is always null.
-6. Chinese section headings → `zh_instruction`.
-7. Output STRICT JSON with EXACTLY these field names — do not rename them:
+1. Extract each item as one entry. `text` = the full item exactly as written — a word, a phrase, or a sentence. Keep phrases and sentences INTACT; do NOT split them into individual words.
+2. Decide granularity by how the worksheet presents items: separate words listed → word items; phrases listed → phrase items; sentences listed → sentence items.
+3. Number items sequentially: number=1, 2, 3, … in order of appearance.
+4. Do NOT include Chinese translations, answer keys, or item-number prefixes inside `text`.
+5. `task_type` = listen_and_write for all items.
+6. `speaker` is always null.
+7. Chinese section headings → `zh_instruction`.
+8. Output STRICT JSON with EXACTLY these field names — do not rename them:
 
-{"title": "nullable string or null", "parts": [{"label": "Words", "task_type": "listen_and_write", "zh_instruction": null, "items": [{"number": 1, "text": "apple", "speaker": null}, {"number": 2, "text": "banana", "speaker": null}]}]}
+{"title": "nullable string or null", "parts": [{"label": "Dictation", "task_type": "listen_and_write", "zh_instruction": null, "items": [{"number": 1, "text": "apple", "speaker": null}, {"number": 2, "text": "do the housework", "speaker": null}, {"number": 3, "text": "I can take the dishes to the kitchen.", "speaker": null}]}]}
 
 Only output the JSON object, no markdown fences, no extra keys."#;
 
@@ -412,12 +413,12 @@ mod tests {
     }
 
     #[test]
-    fn select_content_words_does_not_include_sentence() {
+    fn select_content_words_supports_word_phrase_sentence() {
         let templates = builtin_templates();
         let content = select_content(&templates, "words");
         assert!(
-            content.contains("word") || content.contains("dictation"),
-            "words 模板应提到 word/dictation"
+            content.contains("WORD") && content.contains("PHRASE") && content.contains("SENTENCE"),
+            "默写模板应支持 单词/词组/句子 三种粒度"
         );
     }
 
