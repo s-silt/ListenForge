@@ -158,6 +158,16 @@ JSON 结构必须严格如下(字段名不能改、不能多不能少):
 
 ---
 
+## 📂 样例 / Examples
+
+想先看效果?[`样例_Examples/`](样例_Examples) 文件夹里有两组真实样例:**原始练习卷(PDF/图片)+ ListenForge 一键生成的听力 MP3**。在 GitHub 上可直接在线试听 mp3。
+*See it in action — the [`样例_Examples/`](样例_Examples) folder has two real examples: the source worksheet (PDF/image) + the MP3 ListenForge generated. You can play the mp3 right on GitHub.*
+
+- **样例 1 / Example 1**:`Unit 2小练习.pdf`(文字型 PDF)→ `2B_Unit_2_full.mp3`
+- **样例 2 / Example 2**:`mx.png`(图片练习卷)→ `project_full.mp3`
+
+---
+
 ## 🛠️ 技术栈 / Tech Stack
 
 [Tauri 2](https://tauri.app) · React 19 · Rust · [pdfium](https://pdfium.googlesource.com/pdfium/)(PDF 文本提取)· OpenAI 兼容 API(智能提取)· 微软 edge-tts(语音合成)
