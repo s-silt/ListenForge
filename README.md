@@ -103,6 +103,59 @@ ListenForge is a **Windows desktop tool** for **primary-school English teachers 
 | **中英都读** / Bilingual | 中文说明 + 英文都读,中英对照 |
 | **对话分角色** / Dialogue | 对话型材料,老师声 / 学生声交替读 |
 
+### 需要现成模板?去 `templates/` 找 / Ready-made templates
+仓库根目录的 **`templates/`** 文件夹里,每个模板一个 `.txt`(中英文件名)。
+打开复制内容 → 在 GUI「提取模板」编辑框粘贴 → 「另存为新模板」即可用。
+*The `templates/` folder has one `.txt` per preset (bilingual filenames). Copy its content into the in-app "Extraction Templates" editor → "Save as new template".*
+
+### 想自己生成模板?让 AI 帮你写 / Generate your own with AI
+"提取模板"本质就是**给 AI 的一段指令**,让它从练习卷里提取听力稿、输出固定结构的 JSON。
+把下面的「运行原理 + 生成提示词」复制给任意 AI(ChatGPT / Claude / DeepSeek …),再描述你的场景,它就能生成一个新模板,粘回 GUI 即用。
+*An "extraction template" is just an instruction to an AI. Paste the "how it works + generator prompt" below into any AI, describe your scenario, and it will produce a new template.*
+
+**运行原理 / How it works**
+1. ListenForge 从练习卷(PDF/图片/Word)抽出文本或图像。
+2. 把内容 + 你选的「提取模板」(系统指令)一起发给 AI。
+3. AI 按指令输出一个**固定结构的 JSON**,程序再把它转成听力稿、合成 MP3。
+
+AI 必须输出严格符合这个结构(字段名**不能改**):
+```json
+{
+  "title": "字符串或 null",
+  "parts": [
+    {
+      "label": "大题标题,如 Part One. Listen and choose.",
+      "task_type": "listen_and_choose | listen_and_number | listen_and_judge | listen_and_write | listen_and_circle | listen_passage | unknown",
+      "zh_instruction": "中文说明或 null",
+      "items": [
+        { "number": "题号整数或 null", "text": "要朗读的英文", "speaker": "说话人 A/B 或 null" }
+      ]
+    }
+  ]
+}
+```
+
+**把下面这段复制给 AI(把【】换成你的需求)/ Copy this to any AI:**
+```text
+我在用一个叫 ListenForge 的工具,它把英语练习卷自动转成听力 MP3:把练习卷内容 + 一段"提取指令(模板)"发给你,你按指令输出一个固定结构的 JSON,工具再把 JSON 转成音频。
+
+JSON 结构必须严格如下(字段名不能改、不能多不能少):
+{ "title": "字符串或null", "parts": [ { "label": "大题标题", "task_type": "listen_and_choose|listen_and_number|listen_and_judge|listen_and_write|listen_and_circle|listen_passage|unknown", "zh_instruction": "中文说明或null", "items": [ { "number": 题号整数或null, "text": "要朗读的英文", "speaker": "说话人A/B或null" } ] } ] }
+
+请帮我写一段【英文】的"提取指令(模板)",用于这个场景:
+【在这里描述你的需求,例如:从初中完形填空卷提取短文整段朗读 / 从对话题按说话人分角色 / 只提取划线的句子 ……】
+
+这段提取指令要:
+- 用英文写(它是给 AI 的系统指令)
+- 说清从练习卷里提取什么、忽略什么(尤其务必过滤掉答案 answer key)
+- 要求 AI 输出上面那个 JSON 结构、字段名不变、只输出 JSON、不要 markdown 代码围栏、并给一个 JSON 示例
+- 写清规则:题号怎么处理(放进 number、text 去掉前缀)、中文说明放 zh_instruction、speaker 怎么填、task_type 怎么判断
+
+直接输出这段提取指令本身,不要别的解释。
+```
+拿到 AI 生成的指令后,在 GUI「提取模板」编辑框粘贴 → 「另存为新模板」。
+*Paste the AI-generated instruction into the in-app template editor → save.*
+
 ---
 
 ## 🛠️ 技术栈 / Tech Stack
