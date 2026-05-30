@@ -145,14 +145,25 @@ pub fn write_dotenv_to(dir: &std::path::Path, base_url: &str, model: &str, api_k
 
     let env_path = dir.join(".env");
 
-    // 决定最终 key:传入非空 → 用传入;否则读现有文件的旧 key
+    // 决定最终 key:传入非空 → 用传入;否则保留现有文件的旧 key
     let final_key: String = match api_key {
         Some(k) if !k.trim().is_empty() => k.to_string(),
         _ => {
-            // 尝试从已有文件读取旧 key
-            let old = std::fs::read_to_string(&env_path).unwrap_or_default();
-            let (_, _, old_key) = parse_env_config(&old);
-            old_key.unwrap_or_default()
+            // 未提供新 key：尝试保留现有 .env 里的旧 key。
+            // 文件不存在 → 无旧 key（首次写入，允许空）；
+            // 存在但读失败 → 报错中止，避免静默写空把已有 key 抹掉。
+            match std::fs::read_to_string(&env_path) {
+                Ok(old) => {
+                    let (_, _, old_key) = parse_env_config(&old);
+                    old_key.unwrap_or_default()
+                }
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => String::new(),
+                Err(e) => {
+                    return Err(format!(
+                        "无法读取现有 .env 以保留 API Key（已中止写入，避免清空 key）: {e}"
+                    ))
+                }
+            }
         }
     };
 
@@ -194,7 +205,18 @@ pub fn read_llm_config() -> Result<(LlmConfig, String), String> {
     let model = env_model.or(file_model).unwrap_or(default.model);
     let api_key = env_key
         .or(file_key)
-        .ok_or_else(|| "未找到 OPENAI_API_KEY(环境变量或 ~/Documents/ListenForge/.env)".to_string())?;
+        .ok_or_else(|| {
+            // 区分"没填 key"与".env 存在但读不了"，避免误导排查方向
+            if let Some(d) = dirs::document_dir() {
+                let p = d.join("ListenForge").join(".env");
+                if p.exists() {
+                    if let Err(e) = std::fs::read_to_string(&p) {
+                        return format!("存在 .env 但读取失败（请检查文件权限）: {e}");
+                    }
+                }
+            }
+            "未找到 OPENAI_API_KEY(环境变量或 ~/Documents/ListenForge/.env)".to_string()
+        })?;
 
     let config = LlmConfig {
         provider: "openai".into(),
@@ -391,6 +413,18 @@ OPENAI_BASE_URL=https://api.openai.com/v1\n";
         let content = std::fs::read_to_string(dir.join(".env")).expect("文件应存在");
         let (_, _, api_key) = parse_env_config(&content);
         assert_eq!(api_key, Some("sk-original".to_string()), "空串时 key 应被保留");
+    }
+
+    #[test]
+    fn write_dotenv_to_allows_empty_key_on_first_write() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let dir = tmp.path();
+        // 首次写入（无现有 .env）+ 不提供 key → 允许，写入空 key（NotFound 不报错）
+        let r = write_dotenv_to(dir, "https://api.openai.com/v1", "gpt-5.4-mini", None);
+        assert!(r.is_ok(), "首次无 key 写入应成功: {:?}", r);
+        let content = std::fs::read_to_string(dir.join(".env")).unwrap();
+        let (_, _, api_key) = parse_env_config(&content);
+        assert_eq!(api_key, None, "首次无 key 应写入空 key");
     }
 
     #[test]

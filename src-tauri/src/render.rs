@@ -14,9 +14,6 @@ unsafe impl Sync for PdfiumHolder {}
 
 static PDFIUM: OnceLock<Result<PdfiumHolder, String>> = OnceLock::new();
 
-// 用 Mutex 保护初始化竞争（OnceLock::get_or_init 是 infallible）
-static INIT_LOCK: Mutex<()> = Mutex::new(());
-
 /// 运行时定位 pdfium.dll 所在目录。
 /// 依次尝试：
 ///   1. 当前可执行文件旁（安装目录 / cargo run 的 target/{profile}/）
@@ -39,33 +36,17 @@ fn find_pdfium_dir() -> std::path::PathBuf {
 }
 
 fn get_pdfium() -> Result<&'static Pdfium, String> {
-    if let Some(result) = PDFIUM.get() {
-        return result.as_ref().map(|h| &h.0).map_err(|e| e.clone());
-    }
-
-    // 加锁防止竞争
-    let _guard = INIT_LOCK.lock().unwrap();
-
-    // double-check after lock
-    if let Some(result) = PDFIUM.get() {
-        return result.as_ref().map(|h| &h.0).map_err(|e| e.clone());
-    }
-
-    let init_result: Result<PdfiumHolder, String> = {
+    // OnceLock::get_or_init 保证闭包全进程只执行一次且线程安全，
+    // 无需手动 Mutex + double-check + set/unwrap。旧实现的
+    // INIT_LOCK.lock().unwrap() 有锁中毒 panic 风险，set 后 get().unwrap()
+    // 又依赖隐式不变量——get_or_init 一并消除这两点。
+    let result = PDFIUM.get_or_init(|| {
         let pdfium_dir = find_pdfium_dir();
         Pdfium::bind_to_library(Pdfium::pdfium_platform_library_name_at_path(&pdfium_dir))
             .map_err(|e| format!("加载 pdfium 库失败（目录: {}）: {e}", pdfium_dir.display()))
             .map(|bindings| PdfiumHolder(Pdfium::new(bindings)))
-    };
-
-    let _ = PDFIUM.set(init_result);
-
-    PDFIUM
-        .get()
-        .unwrap()
-        .as_ref()
-        .map(|h| &h.0)
-        .map_err(|e| e.clone())
+    });
+    result.as_ref().map(|h| &h.0).map_err(|e| e.clone())
 }
 
 /// 串行化所有渲染:pdfium C 库非线程安全,而 PdfiumHolder 是单例 unsafe-Sync 共享,

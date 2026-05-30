@@ -219,7 +219,8 @@ fn sanitize_part_name(part: &crate::model::Part) -> String {
     let raw: String = part
         .label
         .chars()
-        .map(|c| if c.is_ascii_alphanumeric() { c } else { '_' })
+        // 保留 Unicode 字母数字（含中文），其余 → _
+        .map(|c| if c.is_alphanumeric() { c } else { '_' })
         .collect();
     // Collapse repeated underscores and trim.
     let collapsed = raw
@@ -327,6 +328,23 @@ mod tests {
         );
         assert!(!name.starts_with('_'), "should not start with _: {name}");
         assert!(!name.ends_with('_'), "should not end with _: {name}");
+    }
+
+    #[test]
+    fn sanitize_part_name_keeps_chinese() {
+        let part = Part {
+            id: "x".into(),
+            index: 0,
+            label: "第一大题 听录音".into(),
+            task_type: TaskType::ListenAndChoose,
+            read_label: false,
+            zh_instruction: None,
+            read_zh_instruction: false,
+            items: vec![],
+            gap_after_ms: 5000,
+        };
+        let name = sanitize_part_name(&part);
+        assert!(name.contains("第一大题"), "中文 label 应保留: {name}");
     }
 
     #[test]

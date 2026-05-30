@@ -186,15 +186,34 @@ fn prompts_json_path() -> Option<std::path::PathBuf> {
     dirs::document_dir().map(|d| d.join("ListenForge").join("prompts.json"))
 }
 
-fn read_prompts_file() -> PromptsFile {
+/// 读取 prompts.json。
+/// - 文件不存在 → `Ok(default)`（首次使用，正常）
+/// - 解析失败 → 备份损坏文件为 `prompts.json.bak`，返回 `Err`，
+///   **绝不**返回空集合，避免后续 write 覆盖删除用户的自定义模板
+/// - 其它读失败（权限等）→ 返回 `Err`，与"不存在"区分
+fn read_prompts_file() -> Result<PromptsFile, String> {
     let path = match prompts_json_path() {
         Some(p) => p,
-        None => return PromptsFile::default(),
+        None => return Ok(PromptsFile::default()),
     };
     match std::fs::read_to_string(&path) {
-        Ok(content) => serde_json::from_str(&content).unwrap_or_default(),
-        Err(_) => PromptsFile::default(),
+        Ok(content) => serde_json::from_str(&content).map_err(|e| {
+            let bak = path.with_extension("json.bak");
+            let _ = std::fs::copy(&path, &bak);
+            format!(
+                "prompts.json 解析失败（已备份到 {}，原文件保留未改动）: {e}",
+                bak.display()
+            )
+        }),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(PromptsFile::default()),
+        Err(e) => Err(format!("读取 prompts.json 失败: {e}")),
     }
+}
+
+/// 用于「显示 / 提取」路径的容错读取：损坏时降级为内置默认（不阻塞使用）。
+/// 写入路径必须改用 `read_prompts_file()?`，以在损坏时报错、避免覆盖用户数据。
+fn read_prompts_file_or_default() -> PromptsFile {
+    read_prompts_file().unwrap_or_default()
 }
 
 fn write_prompts_file(pf: &PromptsFile) -> Result<(), String> {
@@ -214,7 +233,7 @@ fn write_prompts_file(pf: &PromptsFile) -> Result<(), String> {
 
 /// 返回内置 + 用户自定义模板列表(自定义 builtin=false)。
 pub fn all_templates() -> Vec<PromptTemplate> {
-    let pf = read_prompts_file();
+    let pf = read_prompts_file_or_default();
     let mut result = builtin_templates();
     for entry in pf.custom {
         result.push(PromptTemplate {
@@ -239,14 +258,14 @@ pub fn select_content(templates: &[PromptTemplate], selected_id: &str) -> String
 
 /// 读取当前选中模板的 content。找不到/无文件 → standard content。
 pub fn selected_prompt_content() -> String {
-    let pf = read_prompts_file();
+    let pf = read_prompts_file_or_default();
     let templates = all_templates();
     select_content(&templates, &pf.selected)
 }
 
 /// 将选中的模板 id 写入 prompts.json。
 pub fn set_selected(id: &str) -> Result<(), String> {
-    let mut pf = read_prompts_file();
+    let mut pf = read_prompts_file()?;
     // 验证 id 存在
     let templates = all_templates();
     if !templates.iter().any(|t| t.id == id) {
@@ -261,7 +280,7 @@ pub fn save_custom(name: &str, content: &str) -> Result<String, String> {
     if name.trim().is_empty() {
         return Err("模板名称不能为空".to_string());
     }
-    let mut pf = read_prompts_file();
+    let mut pf = read_prompts_file()?;
     // 生成或复用 id:用 name 的 slug 或 custom_{n}
     let id = make_custom_id(name, &pf.custom);
     match pf.custom.iter_mut().find(|e| e.id == id) {

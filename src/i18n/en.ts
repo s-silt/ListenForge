@@ -18,6 +18,8 @@ const en = {
     title: "File Info",
     noFile: "No file opened",
     created: "Created",
+    parts: "Parts",
+    items: "Items",
   },
 
   // ── Center empty state / onboarding ───────────────────────────────────────
@@ -68,6 +70,7 @@ const en = {
     savedOk: "Settings saved",
     loadFailed: "Failed to load config",
     saveFailed: "Save failed",
+    invalidUrl: "Invalid API URL — must start with http:// or https://",
     firstUseWarning: "First time? Fill in API URL / Model / Key and save before using",
   },
 
@@ -82,6 +85,7 @@ const en = {
     apply: "Apply Template",
     saveAs: "Save As New",
     saving: "Saving…",
+    applying: "Applying…",
     applied: "Applied — takes effect on next open",
     savedAs: "Saved as",
     loadFailed: "Failed to load templates",
@@ -89,6 +93,8 @@ const en = {
     saveFailed: "Save failed",
     newNamePrompt: "New template name:",
     nameRequired: "Name cannot be empty",
+    contentRequired: "Template content cannot be empty",
+    contentTooLong: "Template content too long (max 20000 chars)",
     description:
       "Templates control how content is extracted (standard / general / vocabulary / bilingual / dialogue).\nAfter editing or switching, click 'Apply Template'; it takes effect on next open.",
   },

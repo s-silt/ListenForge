@@ -62,6 +62,15 @@ function moveItem(
 
 // ── sub-components ────────────────────────────────────────────────────────────
 
+// 模块级常量：不依赖 props/t，避免每行每次 render 重建
+const GAP_OPTIONS: { value: number; label: string }[] = [
+  { value: 500, label: "0.5s" },
+  { value: 1000, label: "1s" },
+  { value: 2000, label: "2s" },
+  { value: 3000, label: "3s" },
+  { value: 5000, label: "5s" },
+];
+
 interface ItemRowProps {
   item: Item;
   isFirst: boolean;
@@ -72,14 +81,6 @@ interface ItemRowProps {
 
 function ItemRow({ item, isFirst, isLast, onUpdate, onMove }: ItemRowProps) {
   const { t } = useTranslation();
-
-  const GAP_OPTIONS: { value: number; label: string }[] = [
-    { value: 500, label: "0.5s" },
-    { value: 1000, label: "1s" },
-    { value: 2000, label: "2s" },
-    { value: 3000, label: "3s" },
-    { value: 5000, label: "5s" },
-  ];
 
   return (
     <div

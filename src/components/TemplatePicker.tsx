@@ -9,7 +9,9 @@ export function TemplatePicker() {
   const [selectedId, setSelectedId] = useState<string>("");
   const [content, setContent] = useState<string>("");
   const [status, setStatus] = useState<string>("");
+  const [statusKind, setStatusKind] = useState<"ok" | "error" | null>(null);
   const [savingNew, setSavingNew] = useState(false);
+  const [applying, setApplying] = useState(false);
 
   async function loadTemplates(selectId?: string) {
     try {
@@ -23,6 +25,7 @@ export function TemplatePicker() {
       }
     } catch (e) {
       setStatus(`${t("template.loadFailed")}: ${String(e)}`);
+      setStatusKind("error");
     }
   }
 
@@ -36,15 +39,22 @@ export function TemplatePicker() {
     const tpl = templates.find((tpl) => tpl.id === id);
     if (tpl) setContent(tpl.content);
     setStatus("");
+    setStatusKind(null);
   }
 
   async function handleApply() {
     setStatus("");
+    setStatusKind(null);
+    setApplying(true);
     try {
       await invoke("save_prompt_selection", { id: selectedId });
       setStatus(t("template.applied"));
+      setStatusKind("ok");
     } catch (e) {
       setStatus(`${t("template.applyFailed")}: ${String(e)}`);
+      setStatusKind("error");
+    } finally {
+      setApplying(false);
     }
   }
 
@@ -53,10 +63,23 @@ export function TemplatePicker() {
     if (name === null) return; // user cancelled
     if (!name.trim()) {
       setStatus(t("template.nameRequired"));
+      setStatusKind("error");
+      return;
+    }
+    // content 基本校验：非空 + 长度上限（防止误存空模板或超大内容）
+    if (!content.trim()) {
+      setStatus(t("template.contentRequired"));
+      setStatusKind("error");
+      return;
+    }
+    if (content.length > 20000) {
+      setStatus(t("template.contentTooLong"));
+      setStatusKind("error");
       return;
     }
     setSavingNew(true);
     setStatus("");
+    setStatusKind(null);
     try {
       const newId = await invoke<string>("save_custom_prompt", {
         name: name.trim(),
@@ -64,17 +87,18 @@ export function TemplatePicker() {
       });
       await loadTemplates(newId);
       setStatus(`${t("template.savedAs")} "${name.trim()}"`);
+      setStatusKind("ok");
     } catch (e) {
       setStatus(`${t("template.saveFailed")}: ${String(e)}`);
+      setStatusKind("error");
     } finally {
       setSavingNew(false);
     }
   }
 
   const currentTpl = templates.find((tpl) => tpl.id === selectedId);
-  const isError = status.includes(t("template.loadFailed").split(":")[0]) ||
-    status.includes(t("template.applyFailed").split(":")[0]) ||
-    status.includes(t("template.saveFailed").split(":")[0]);
+  // 用显式 statusKind 判断红/绿，而非反推文案
+  const isError = statusKind === "error";
 
   return (
     <div className="space-y-3 text-sm">
@@ -120,9 +144,10 @@ export function TemplatePicker() {
       <div className="flex gap-2">
         <button
           onClick={handleApply}
-          className="flex-1 rounded border border-primary/40 px-2 py-1 text-xs bg-primary/10 text-primary hover:bg-primary/20 transition-colors"
+          disabled={applying}
+          className="flex-1 rounded border border-primary/40 px-2 py-1 text-xs bg-primary/10 text-primary hover:bg-primary/20 disabled:opacity-50 transition-colors"
         >
-          {t("template.apply")}
+          {applying ? t("template.applying") : t("template.apply")}
         </button>
         <button
           onClick={handleSaveAs}

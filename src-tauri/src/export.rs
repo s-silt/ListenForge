@@ -35,7 +35,13 @@ pub fn save_audio(
 
     // Per-part MP3s.
     for (filename, bytes) in parts {
-        let part_path = dir.join(filename);
+        // 纵深防御：只取文件名部分，剥离任何路径分隔符 / ".." ，
+        // 确保始终写入 out_dir 内（不信任 caller 传入的 filename）。
+        let safe_name = Path::new(filename)
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("part.mp3");
+        let part_path = dir.join(safe_name);
         fs::write(&part_path, bytes)
             .map_err(|e| format!("write '{}': {e}", part_path.display()))?;
         written.push(part_path.to_string_lossy().to_string());
@@ -49,7 +55,10 @@ fn sanitize_title(title: &str) -> String {
     let raw: String = title
         .chars()
         .map(|c| {
-            if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
+            // 保留 Unicode 字母数字（含中文）与 - _，其余（含路径分隔符 / 控制字符）→ _
+            // ⚠ 勿把 '.' / '/' / '\\' 加入白名单——否则 ".." 路径逃逸会复活
+            //   (见 sanitize_title_strips_path_separators 测试)
+            if c.is_alphanumeric() || c == '-' || c == '_' {
                 c
             } else {
                 '_'
@@ -126,6 +135,20 @@ mod tests {
     fn sanitize_title_basic() {
         assert_eq!(sanitize_title("My Project!"), "My_Project");
         assert_eq!(sanitize_title("Unit-2_Test"), "Unit-2_Test");
+    }
+
+    #[test]
+    fn sanitize_title_keeps_chinese() {
+        // 中文标题应保留（修复前 ASCII-only 过滤会把它们全变 _ → "project"）
+        assert_eq!(sanitize_title("第二单元 听力"), "第二单元_听力");
+    }
+
+    #[test]
+    fn sanitize_title_strips_path_separators() {
+        // 路径分隔符与 .. 必须被中和，防止文件名逃逸目录
+        let s = sanitize_title("../../etc/passwd");
+        assert!(!s.contains('/'), "不应含 /: {s}");
+        assert!(!s.contains(".."), "不应含 ..: {s}");
     }
 
     #[test]

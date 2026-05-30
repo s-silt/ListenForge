@@ -14,6 +14,7 @@ export function AiSettings() {
   const [hasApiKey, setHasApiKey] = useState(false);
   const [saving, setSaving] = useState(false);
   const [status, setStatus] = useState("");
+  const [statusKind, setStatusKind] = useState<"ok" | "error" | null>(null);
 
   async function loadConfig() {
     try {
@@ -23,6 +24,7 @@ export function AiSettings() {
       setHasApiKey(cfg.has_api_key);
     } catch (e) {
       setStatus(`${t("ai.loadFailed")}: ${String(e)}`);
+      setStatusKind("error");
     }
   }
 
@@ -32,19 +34,29 @@ export function AiSettings() {
   }, []);
 
   async function handleSave() {
+    // 基本校验：API 地址须以 http:// 或 https:// 开头
+    const url = baseUrl.trim();
+    if (!/^https?:\/\//i.test(url)) {
+      setStatus(t("ai.invalidUrl"));
+      setStatusKind("error");
+      return;
+    }
     setSaving(true);
     setStatus("");
+    setStatusKind(null);
     try {
       await invoke("save_llm_config", {
-        baseUrl,
-        model,
-        apiKey: newKey.trim() !== "" ? newKey : null,
+        baseUrl: url,
+        model: model.trim(),
+        apiKey: newKey.trim() !== "" ? newKey.trim() : null,
       });
       setNewKey("");
       setStatus(t("ai.savedOk"));
+      setStatusKind("ok");
       await loadConfig();
     } catch (e) {
       setStatus(`${t("ai.saveFailed")}: ${String(e)}`);
+      setStatusKind("error");
     } finally {
       setSaving(false);
     }
@@ -52,8 +64,8 @@ export function AiSettings() {
 
   const keyPlaceholder = hasApiKey ? t("ai.keyConfigured") : t("ai.keyMissing");
 
-  // Determine status color: error if contains loadFailed/saveFailed keys
-  const isError = status.startsWith(t("ai.saveFailed")) || status.startsWith(t("ai.loadFailed"));
+  // 用显式 statusKind 判断红/绿，而非反推文案（切换语言也不会错配）
+  const isError = statusKind === "error";
 
   return (
     <div className="space-y-3 text-sm">

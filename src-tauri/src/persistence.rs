@@ -1,11 +1,12 @@
 use crate::model::Project;
 use std::path::{Path, PathBuf};
 
-/// 默认项目目录:~/Documents/ListenForge/
-pub fn default_project_dir() -> PathBuf {
+/// 默认项目目录:~/Documents/ListenForge/。定位失败时返回 Err，
+/// 不再静默兜底到当前工作目录（避免项目文件落到不可预测的位置）。
+fn default_project_dir() -> Result<PathBuf, String> {
     dirs::document_dir()
-        .unwrap_or_else(|| PathBuf::from("."))
-        .join("ListenForge")
+        .map(|d| d.join("ListenForge"))
+        .ok_or_else(|| "无法定位 Documents 目录".to_string())
 }
 
 /// 把标题清洗成安全文件名。
@@ -29,7 +30,7 @@ pub fn save_project_to(dir: &Path, project: &Project) -> Result<PathBuf, String>
 
 /// 保存到默认目录。
 pub fn save_project(project: &Project) -> Result<PathBuf, String> {
-    save_project_to(&default_project_dir(), project)
+    save_project_to(&default_project_dir()?, project)
 }
 
 /// 从路径加载。

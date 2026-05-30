@@ -17,7 +17,7 @@
 use crate::tts::TtsProvider;
 use futures_util::{SinkExt, StreamExt};
 use sha2::{Digest, Sha256};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio_tungstenite::{
     connect_async_tls_with_config,
     tungstenite::{client::IntoClientRequest, http::HeaderValue, Message},
@@ -86,17 +86,15 @@ pub fn build_ssml(text: &str, voice_id: &str, rate: i32, pitch: i32, volume: u32
     };
     let volume_str = format!("{volume}%");
 
-    // Escape XML special characters in user text.
-    let escaped = text
-        .replace('&', "&amp;")
-        .replace('<', "&lt;")
-        .replace('>', "&gt;")
-        .replace('"', "&quot;")
-        .replace('\'', "&apos;");
+    // Escape XML special characters in BOTH the user text and the voice id.
+    // voice_id comes from VoiceConfig, which the frontend can set to any string,
+    // so it must be escaped to prevent SSML attribute injection.
+    let escaped = crate::ssml::xml_escape(text);
+    let voice_escaped = crate::ssml::xml_escape(voice_id);
 
     format!(
         "<speak version='1.0' xmlns='http://www.w3.org/2001/10/synthesis' xml:lang='en-US'>\
-         <voice name='{voice_id}'>\
+         <voice name='{voice_escaped}'>\
          <prosody pitch='{pitch_str}' rate='{rate_str}' volume='{volume_str}'>\
          {escaped}\
          </prosody></voice></speak>"
@@ -197,10 +195,13 @@ async fn send_ssml_and_collect(ssml: &str) -> Result<Vec<u8>, String> {
         .map_err(|e| format!("tls connector: {e}"))?;
     let connector = Connector::NativeTls(tls_connector);
 
-    let (mut ws, _) =
-        connect_async_tls_with_config(request, None, false, Some(connector))
-            .await
-            .map_err(|e| format!("websocket connect: {e}"))?;
+    let (mut ws, _) = tokio::time::timeout(
+        Duration::from_secs(15),
+        connect_async_tls_with_config(request, None, false, Some(connector)),
+    )
+    .await
+    .map_err(|_| "Edge TTS 连接超时(15s)，请检查网络 / 代理".to_string())?
+    .map_err(|e| format!("websocket connect: {e}"))?;
 
     let ts = timestamp_str();
     let config_body = build_speech_config();
@@ -229,9 +230,9 @@ async fn send_ssml_and_collect(ssml: &str) -> Result<Vec<u8>, String> {
     let mut audio_buf: Vec<u8> = Vec::new();
 
     loop {
-        let msg = ws
-            .next()
+        let msg = tokio::time::timeout(Duration::from_secs(30), ws.next())
             .await
+            .map_err(|_| "Edge TTS 响应超时(30s)，请检查网络 / 代理".to_string())?
             .ok_or_else(|| "WebSocket closed before turn.end".to_string())?
             .map_err(|e| format!("websocket recv: {e}"))?;
 
@@ -354,6 +355,14 @@ mod tests {
         assert!(ssml.contains("&amp;"), "& must be escaped");
         assert!(ssml.contains("&lt;"), "< must be escaped");
         assert!(ssml.contains("&gt;"), "> must be escaped");
+    }
+
+    #[test]
+    fn build_ssml_escapes_voice_id() {
+        // 防御 SSML 属性注入：voice_id 里的单引号必须被转义
+        let ssml = build_ssml("x", "evil' onload='y", 0, 0, 100);
+        assert!(!ssml.contains("evil' onload"), "voice_id 引号应被转义: {ssml}");
+        assert!(ssml.contains("&apos;"), "voice_id 单引号应转义为 &apos;: {ssml}");
     }
 
     #[test]

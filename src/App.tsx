@@ -17,12 +17,12 @@ function App() {
   const [generating, setGenerating] = useState(false);
   const [saving, setSaving] = useState(false);
   const [generatedFiles, setGeneratedFiles] = useState<string[]>([]);
-  const [saveStatus, setSaveStatus] = useState("");
+  const [saveStatus, setSaveStatus] = useState<{ text: string; ok: boolean } | null>(null);
 
   async function pickAndExtract() {
     setError("");
     setGeneratedFiles([]);
-    setSaveStatus("");
+    setSaveStatus(null);
     const path = await open({
       filters: [
         {
@@ -66,13 +66,14 @@ function App() {
 
   async function saveProject() {
     if (!project) return;
-    setSaveStatus("");
+    setSaveStatus(null);
     setSaving(true);
     try {
       const savedPath = await invoke<string>("save_project_cmd", { project });
-      setSaveStatus(`${t("topbar.save")}: ${savedPath}`);
+      setSaveStatus({ text: `${t("topbar.save")}: ${savedPath}`, ok: true });
     } catch (e) {
-      setError(String(e));
+      // 失败也在右栏同位置反馈（不再写左栏 error，避免提示割裂）
+      setSaveStatus({ text: `${t("topbar.save")}: ${String(e)}`, ok: false });
     } finally {
       setSaving(false);
     }
@@ -141,7 +142,7 @@ function App() {
                 {t("fileInfo.created")}: {new Date(project.created_at).toLocaleString(currentLang === "zh" ? "zh-CN" : "en-US")}
               </div>
               <div className="text-xs">
-                Parts: {project.parts.length} &nbsp;|&nbsp; Items:{" "}
+                {t("fileInfo.parts")}: {project.parts.length} &nbsp;|&nbsp; {t("fileInfo.items")}:{" "}
                 {project.parts.reduce((s, p) => s + p.items.length, 0)}
               </div>
             </>

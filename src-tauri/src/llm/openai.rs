@@ -4,6 +4,48 @@ use serde_json::{json, Value};
 use super::{ContentBlock, ExtractedScript, LlmConfig, LlmProvider};
 use crate::llm::schema::extracted_script_schema;
 
+/// 对返回给前端的错误文本做密钥脱敏：把形如 `sk-XXXX` 的 API key 片段替换为 `[REDACTED]`。
+/// 第三方 / 中转 LLM 的错误响应体可能回显鉴权信息，截断 + 脱敏后再外露。
+fn redact_secrets(s: &str) -> String {
+    fn is_token_char(b: u8) -> bool {
+        b.is_ascii_alphanumeric() || b == b'-' || b == b'_' || b == b'.'
+    }
+    let bytes = s.as_bytes();
+    let mut out = String::with_capacity(s.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        let rest = &s[i..];
+        // 1) sk- 前缀的 API key（OpenAI 兼容，含 sk-ant- 等变体）
+        if rest.starts_with("sk-") {
+            out.push_str("[REDACTED]");
+            i += 3;
+            while i < bytes.len() && is_token_char(bytes[i]) {
+                i += 1;
+            }
+            continue;
+        }
+        // 2) "Bearer <token>"（大小写不敏感）：保留 "Bearer "，脱敏其后 token
+        if let Some(prefix) = rest.get(..7) {
+            if prefix.eq_ignore_ascii_case("Bearer ") {
+                out.push_str(prefix);
+                i += 7;
+                if i < bytes.len() && is_token_char(bytes[i]) {
+                    out.push_str("[REDACTED]");
+                    while i < bytes.len() && is_token_char(bytes[i]) {
+                        i += 1;
+                    }
+                }
+                continue;
+            }
+        }
+        // 其它：按 UTF-8 字符边界推进，避免切碎多字节字符
+        let ch = rest.chars().next().unwrap();
+        out.push(ch);
+        i += ch.len_utf8();
+    }
+    out
+}
+
 // ─── OpenAiProvider ──────────────────────────────────────────────────────────
 
 pub struct OpenAiProvider {
@@ -19,6 +61,9 @@ impl OpenAiProvider {
     pub fn new(cfg: LlmConfig, api_key: String, system_prompt: String) -> Result<Self, String> {
         let client = reqwest::Client::builder()
             .no_proxy()
+            // 防止请求永久挂起：连接超时短，总超时给 vision 请求留足余量
+            .connect_timeout(std::time::Duration::from_secs(15))
+            .timeout(std::time::Duration::from_secs(180))
             .build()
             .map_err(|e| format!("构建 reqwest client 失败: {e}"))?;
         Ok(Self { cfg, api_key, client, system_prompt })
@@ -119,10 +164,12 @@ impl LlmProvider for OpenAiProvider {
 
         let status = resp.status();
         if !status.is_success() {
-            let body_text = resp.text().await.unwrap_or_default();
-            return Err(format!(
-                "API 返回非 2xx 状态 {status}: {body_text}"
-            ));
+            let body_text = resp
+                .text()
+                .await
+                .unwrap_or_else(|e| format!("<读取响应体失败: {e}>"));
+            let snippet: String = redact_secrets(&body_text).chars().take(500).collect();
+            return Err(format!("API 返回非 2xx 状态 {status}: {snippet}"));
         }
 
         let json: Value = resp
@@ -133,10 +180,9 @@ impl LlmProvider for OpenAiProvider {
         let content = json["choices"][0]["message"]["content"]
             .as_str()
             .ok_or_else(|| {
-                format!(
-                    "响应中未找到 choices[0].message.content，实际响应:\n{}",
-                    serde_json::to_string_pretty(&json).unwrap_or_default()
-                )
+                let pretty = serde_json::to_string_pretty(&json).unwrap_or_default();
+                let snippet: String = redact_secrets(&pretty).chars().take(500).collect();
+                format!("响应中未找到 choices[0].message.content，实际响应(前500字):\n{snippet}")
             })?;
 
         Self::parse_content(content)
@@ -245,5 +291,29 @@ mod tests {
             .no_proxy()
             .build();
         assert!(client.is_ok(), "no_proxy client 应构建成功");
+    }
+
+    #[test]
+    fn redact_secrets_masks_sk_keys() {
+        let input = "error: invalid key sk-abc123XYZ_-tail used for auth";
+        let out = redact_secrets(input);
+        assert!(!out.contains("sk-abc123XYZ"), "sk- key 应被脱敏: {out}");
+        assert!(out.contains("[REDACTED]"), "应含脱敏标记: {out}");
+        assert!(out.contains("used for auth"), "非密钥文本应保留: {out}");
+    }
+
+    #[test]
+    fn redact_secrets_preserves_plain_text() {
+        let input = "纯中文错误信息，无密钥 plain ascii";
+        assert_eq!(redact_secrets(input), input);
+    }
+
+    #[test]
+    fn redact_secrets_masks_bearer_token() {
+        let input = "Authorization: Bearer abc123tokenXYZ failed";
+        let out = redact_secrets(input);
+        assert!(!out.contains("abc123tokenXYZ"), "Bearer token 应脱敏: {out}");
+        assert!(out.contains("Bearer [REDACTED]"), "应保留 Bearer 并脱敏其后: {out}");
+        assert!(out.contains("failed"), "尾部普通词应保留: {out}");
     }
 }

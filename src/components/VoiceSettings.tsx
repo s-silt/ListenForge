@@ -7,7 +7,7 @@ interface VoiceSettingsProps {
   project: Project | null;
   onChange: (updated: Project) => void;
   generatedFiles: string[];
-  saveStatus: string;
+  saveStatus: { text: string; ok: boolean } | null;
 }
 
 function patch(project: Project, vc: Partial<VoiceConfig>): Project {
@@ -62,8 +62,9 @@ export function VoiceSettings({
   useEffect(() => {
     invoke<Voice[]>("get_voices")
       .then(setVoices)
-      .catch(() => {
-        // Fallback: leave voices empty; dropdowns will still show current value
+      .catch((e) => {
+        // 保留当前下拉值；记录错误便于排查（避免在 catch 里静默吞错）
+        console.error("get_voices 失败:", e);
       });
   }, []);
 
@@ -138,8 +139,14 @@ export function VoiceSettings({
 
       {/* save status */}
       {saveStatus && (
-        <div className="break-all rounded bg-muted px-2 py-1 text-xs text-muted-foreground">
-          {saveStatus}
+        <div
+          className={`break-all rounded px-2 py-1 text-xs ${
+            saveStatus.ok
+              ? "bg-green-50 text-green-700"
+              : "bg-red-50 text-red-600"
+          }`}
+        >
+          {saveStatus.text}
         </div>
       )}
 

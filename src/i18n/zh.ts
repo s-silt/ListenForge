@@ -18,6 +18,8 @@ const zh = {
     title: "文件信息",
     noFile: "未打开文件",
     created: "创建",
+    parts: "大题",
+    items: "小题",
   },
 
   // ── Center empty state / onboarding ───────────────────────────────────────
@@ -68,6 +70,7 @@ const zh = {
     savedOk: "设置已保存",
     loadFailed: "加载配置失败",
     saveFailed: "保存失败",
+    invalidUrl: "API 地址格式不对,应以 http:// 或 https:// 开头",
     firstUseWarning: "首次使用:请先填写 API 地址 / 模型 / Key 并保存",
   },
 
@@ -82,6 +85,7 @@ const zh = {
     apply: "应用此模板",
     saveAs: "另存为新模板",
     saving: "保存中…",
+    applying: "应用中…",
     applied: "已应用,下次打开练习卷生效",
     savedAs: "已另存为",
     loadFailed: "加载模板失败",
@@ -89,6 +93,8 @@ const zh = {
     saveFailed: "保存失败",
     newNamePrompt: "新模板名称:",
     nameRequired: "模板名称不能为空",
+    contentRequired: "模板内容不能为空",
+    contentTooLong: "模板内容过长(上限 20000 字符)",
     description:
       '模板决定“怎么从卷子提取”(标准 / 通用 / 单词 / 中英对照 / 对话)。\n改了或切换模板后点「应用此模板」,下次打开练习卷时生效。',
   },
