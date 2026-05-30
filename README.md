@@ -72,6 +72,24 @@ ListenForge is a **Windows desktop tool** for **primary-school English teachers 
 > 没填 Key 时,界面顶部会有橙色提示。Key 保存在本机 `文档\ListenForge\.env`,**不会进 GitHub**。
 > *Fill API URL / Model / Key in "AI Settings" (bottom-right) and Save. The key stays local and never enters the repo.*
 
+### (可选)自用:把 Key 编译进程序,免去明文文件 / Build the key into the binary
+如果只给**自己/家人**用,不想每次填 Key、也不想让明文 `.env` 躺在文档里,可以在**自己的构建机**上把 Key 设成环境变量再编译,Key 会被烤进可执行文件,运行时无需任何配置文件。
+
+> ⚠️ **这不是加密**:内置只是把明文藏进二进制,任何人用 `strings` 扫一遍 exe 就能扒出 Key。**仅适合自用 Key**——发给很多人请改用中转服务器。
+> 优先级:运行时环境变量 > `.env` 文件 > 编译期内置。Key **不会进 git**(只在你本机构建环境里)。
+
+```bash
+# 构建前在 shell 里设置(按需填写;Azure 两项只有用 Azure TTS 才需要)
+export LISTENFORGE_OPENAI_API_KEY=sk-你的key
+export LISTENFORGE_OPENAI_BASE_URL=https://你的接口/v1
+export LISTENFORGE_OPENAI_MODEL=gpt-5.4-mini
+export LISTENFORGE_AZURE_TTS_KEY=你的azure key
+export LISTENFORGE_AZURE_TTS_REGION=eastasia
+
+npm run tauri build
+```
+*For personal/family use only: set these env vars on your own build machine before `npm run tauri build`, and the key gets baked into the binary — no plaintext config file needed at runtime. This is obfuscation, not encryption (extractable via `strings`); use only for your own key. Resolution order: runtime env var > `.env` > built-in. The key never enters git.*
+
 ---
 
 ## 🚀 怎么用 / How to Use

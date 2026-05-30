@@ -18,6 +18,16 @@ fn main() {
     // CARGO_CFG_TARGET_ARCH 在 build script 的 env 中以普通变量形式存在；
     // 监听它可确保切换 --target 时 build.rs 重新执行，避免 src-tauri/pdfium.dll 残留错误架构。
     println!("cargo:rerun-if-env-changed=CARGO_CFG_TARGET_ARCH");
+    // 编译期内置的自用 Key：变化时重新编译，确保新 Key 烤进二进制。
+    for var in [
+        "LISTENFORGE_OPENAI_API_KEY",
+        "LISTENFORGE_OPENAI_BASE_URL",
+        "LISTENFORGE_OPENAI_MODEL",
+        "LISTENFORGE_AZURE_TTS_KEY",
+        "LISTENFORGE_AZURE_TTS_REGION",
+    ] {
+        println!("cargo:rerun-if-env-changed={var}");
+    }
 
     if !arch_dll_src.exists() {
         println!(

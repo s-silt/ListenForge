@@ -95,6 +95,22 @@ pub fn parse_env_config(content: &str) -> (Option<String>, Option<String>, Optio
     (base_url, model, api_key)
 }
 
+// ─── 编译期内置默认（自用：构建时注入，绝不进 git）────────────────────────────
+// 在构建机上设置以下环境变量后再编译，Key 会被烤进可执行文件，运行时无需任何
+// 明文配置文件（不会在 ~/Documents/ListenForge 留下 .env）：
+//   LISTENFORGE_OPENAI_API_KEY / LISTENFORGE_OPENAI_BASE_URL / LISTENFORGE_OPENAI_MODEL
+// 注意：内置只是把明文藏进二进制，仍可被 `strings` 提取——仅适合自用 Key。
+// 优先级：运行时环境变量 > .env 文件 > 此处内置默认。
+fn builtin_api_key() -> Option<String> {
+    option_env!("LISTENFORGE_OPENAI_API_KEY").and_then(|v| normalize_env_val(v))
+}
+fn builtin_base_url() -> Option<String> {
+    option_env!("LISTENFORGE_OPENAI_BASE_URL").and_then(|v| normalize_env_val(v))
+}
+fn builtin_model() -> Option<String> {
+    option_env!("LISTENFORGE_OPENAI_MODEL").and_then(|v| normalize_env_val(v))
+}
+
 /// 空字符串和常见占位返回 None，否则返回 Some(s)。
 fn normalize_env_val(val: &str) -> Option<String> {
     if val.is_empty() {
@@ -130,9 +146,9 @@ pub fn read_config_view() -> LlmConfigView {
 
     let (file_base_url, file_model, file_key) = read_dotenv_file();
 
-    let base_url = env_base_url.or(file_base_url).unwrap_or(default.base_url);
-    let model = env_model.or(file_model).unwrap_or(default.model);
-    let has_api_key = env_key.or(file_key).is_some();
+    let base_url = env_base_url.or(file_base_url).or(builtin_base_url()).unwrap_or(default.base_url);
+    let model = env_model.or(file_model).or(builtin_model()).unwrap_or(default.model);
+    let has_api_key = env_key.or(file_key).or(builtin_api_key()).is_some();
 
     LlmConfigView { base_url, model, has_api_key }
 }
@@ -200,11 +216,12 @@ pub fn read_llm_config() -> Result<(LlmConfig, String), String> {
     // 2. 从 .env 文件补缺
     let (file_base_url, file_model, file_key) = read_dotenv_file();
 
-    // 3. 合并:环境变量优先
-    let base_url = env_base_url.or(file_base_url).unwrap_or(default.base_url);
-    let model = env_model.or(file_model).unwrap_or(default.model);
+    // 3. 合并:环境变量 > .env 文件 > 编译期内置默认
+    let base_url = env_base_url.or(file_base_url).or(builtin_base_url()).unwrap_or(default.base_url);
+    let model = env_model.or(file_model).or(builtin_model()).unwrap_or(default.model);
     let api_key = env_key
         .or(file_key)
+        .or(builtin_api_key())
         .ok_or_else(|| {
             // 区分"没填 key"与".env 存在但读不了"，避免误导排查方向
             if let Some(d) = dirs::document_dir() {
@@ -215,7 +232,7 @@ pub fn read_llm_config() -> Result<(LlmConfig, String), String> {
                     }
                 }
             }
-            "未找到 OPENAI_API_KEY(环境变量或 ~/Documents/ListenForge/.env)".to_string()
+            "未找到 OPENAI_API_KEY(环境变量、~/Documents/ListenForge/.env 或编译期内置)".to_string()
         })?;
 
     let config = LlmConfig {

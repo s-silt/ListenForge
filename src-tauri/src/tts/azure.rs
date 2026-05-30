@@ -95,15 +95,29 @@ fn azure_config_path() -> Option<std::path::PathBuf> {
     dirs::document_dir().map(|d| d.join("ListenForge").join("azure_tts.json"))
 }
 
-/// 读取 (key, region)；任一为空 → None。
+// ─── 编译期内置默认（自用：构建时注入，绝不进 git）────────────────────────────
+// 在构建机上设置 LISTENFORGE_AZURE_TTS_KEY / LISTENFORGE_AZURE_TTS_REGION 后编译，
+// Key 会被烤进可执行文件，运行时无需 azure_tts.json。
+// 注意：内置只是把明文藏进二进制，仍可被 `strings` 提取——仅适合自用 Key。
+// 优先级：azure_tts.json 文件 > 此处内置默认。
+fn builtin_azure_config() -> Option<(String, String)> {
+    let key = option_env!("LISTENFORGE_AZURE_TTS_KEY").map(str::trim).filter(|v| !v.is_empty())?;
+    let region = option_env!("LISTENFORGE_AZURE_TTS_REGION").map(str::trim).filter(|v| !v.is_empty())?;
+    Some((key.to_string(), region.to_string()))
+}
+
+/// 读取 (key, region)；文件缺失或为空时回退到编译期内置；都没有 → None。
 pub fn read_azure_config() -> Option<(String, String)> {
-    let path = azure_config_path()?;
-    let content = std::fs::read_to_string(&path).ok()?;
-    let cfg: AzureConfigFile = serde_json::from_str(&content).ok()?;
-    if cfg.key.trim().is_empty() || cfg.region.trim().is_empty() {
-        return None;
+    if let Some(path) = azure_config_path() {
+        if let Ok(content) = std::fs::read_to_string(&path) {
+            if let Ok(cfg) = serde_json::from_str::<AzureConfigFile>(&content) {
+                if !cfg.key.trim().is_empty() && !cfg.region.trim().is_empty() {
+                    return Some((cfg.key, cfg.region));
+                }
+            }
+        }
     }
-    Some((cfg.key, cfg.region))
+    builtin_azure_config()
 }
 
 /// 写入 Azure key + region。
@@ -142,8 +156,15 @@ pub fn read_azure_config_view() -> AzureConfigView {
         .and_then(|p| std::fs::read_to_string(p).ok())
         .and_then(|c| serde_json::from_str::<AzureConfigFile>(&c).ok())
         .unwrap_or_default();
+    // 文件未配置时，反映编译期内置默认，让前端不再提示"未配置"。
+    let builtin = builtin_azure_config();
+    let region = if !raw.region.trim().is_empty() {
+        raw.region
+    } else {
+        builtin.as_ref().map(|(_, r)| r.clone()).unwrap_or_default()
+    };
     AzureConfigView {
-        region: raw.region,
-        has_key: !raw.key.trim().is_empty(),
+        region,
+        has_key: !raw.key.trim().is_empty() || builtin.is_some(),
     }
 }
