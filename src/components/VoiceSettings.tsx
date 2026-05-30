@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { useTranslation } from "react-i18next";
-import type { Project, VoiceConfig, Voice } from "@/types";
+import type { Project, VoiceConfig, Voice, AzureConfigView } from "@/types";
 
 interface VoiceSettingsProps {
   project: Project | null;
@@ -58,6 +58,11 @@ export function VoiceSettings({
 }: VoiceSettingsProps) {
   const { t } = useTranslation();
   const [voices, setVoices] = useState<Voice[]>([]);
+  const [azureRegion, setAzureRegion] = useState("");
+  const [azureKey, setAzureKey] = useState("");
+  const [azureHasKey, setAzureHasKey] = useState(false);
+  const [azureSaving, setAzureSaving] = useState(false);
+  const [azureStatus, setAzureStatus] = useState<{ text: string; ok: boolean } | null>(null);
 
   useEffect(() => {
     invoke<Voice[]>("get_voices")
@@ -67,6 +72,35 @@ export function VoiceSettings({
         console.error("get_voices 失败:", e);
       });
   }, []);
+
+  useEffect(() => {
+    invoke<AzureConfigView>("get_azure_tts_config")
+      .then((c) => {
+        setAzureRegion(c.region);
+        setAzureHasKey(c.has_key);
+      })
+      .catch((e) => console.error("get_azure_tts_config 失败:", e));
+  }, []);
+
+  async function saveAzure() {
+    setAzureSaving(true);
+    setAzureStatus(null);
+    try {
+      await invoke("save_azure_tts_config", {
+        key: azureKey.trim(),
+        region: azureRegion.trim(),
+      });
+      setAzureKey("");
+      const c = await invoke<AzureConfigView>("get_azure_tts_config");
+      setAzureRegion(c.region);
+      setAzureHasKey(c.has_key);
+      setAzureStatus({ text: t("voice.azureSaved"), ok: true });
+    } catch (e) {
+      setAzureStatus({ text: `${t("voice.azureSaveFailed")}: ${String(e)}`, ok: false });
+    } finally {
+      setAzureSaving(false);
+    }
+  }
 
   const disabled = project === null;
   const vc = project?.voice_config;
@@ -132,6 +166,51 @@ export function VoiceSettings({
           }
           className="w-full accent-primary disabled:opacity-50"
         />
+      </div>
+
+      {/* TTS 引擎 / Azure 付费接口 */}
+      <div className="space-y-2 rounded border border-border p-2">
+        <div className="text-xs font-medium">{t("voice.engineTitle")}</div>
+        <div className="text-xs text-muted-foreground">
+          {azureHasKey ? `✅ ${t("voice.azureActive")}` : t("voice.engineHelper")}
+        </div>
+        <div className="space-y-1">
+          <label className="text-xs text-muted-foreground">{t("voice.azureRegion")}</label>
+          <input
+            type="text"
+            value={azureRegion}
+            onChange={(e) => setAzureRegion(e.target.value)}
+            placeholder="eastasia"
+            className="w-full rounded border border-input bg-background px-2 py-1 text-xs outline-none focus:border-ring"
+          />
+        </div>
+        <div className="space-y-1">
+          <label className="text-xs text-muted-foreground">{t("voice.azureKey")}</label>
+          <input
+            type="password"
+            value={azureKey}
+            onChange={(e) => setAzureKey(e.target.value)}
+            placeholder={azureHasKey ? t("voice.azureKeyConfigured") : t("voice.azureKeyMissing")}
+            autoComplete="new-password"
+            className="w-full rounded border border-input bg-background px-2 py-1 text-xs outline-none focus:border-ring"
+          />
+        </div>
+        <button
+          onClick={saveAzure}
+          disabled={azureSaving}
+          className="w-full rounded border border-primary/40 px-2 py-1 text-xs bg-primary/10 text-primary hover:bg-primary/20 disabled:opacity-50 transition-colors"
+        >
+          {azureSaving ? t("voice.azureSaving") : t("voice.azureSave")}
+        </button>
+        {azureStatus && (
+          <div
+            className={`break-all rounded px-2 py-1 text-xs ${
+              azureStatus.ok ? "bg-green-50 text-green-700" : "bg-red-50 text-red-600"
+            }`}
+          >
+            {azureStatus.text}
+          </div>
+        )}
       </div>
 
       {/* divider */}

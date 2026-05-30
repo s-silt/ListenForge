@@ -60,6 +60,7 @@ Your job: given a dictation/spelling worksheet, extract each item to be dictated
 
 Rules:
 1. Extract each item as one entry. `text` = the full item exactly as written — a word, a phrase, or a sentence. Keep phrases and sentences INTACT; do NOT split them into individual words.
+   IMPORTANT: Chinese category headers / section labels (e.g. "单词:", "词组:", "句子:", "Words:", "Phrases:", "Sentences:") are NOT dictation items — do NOT create items for them. Every item's `text` MUST be the English content to dictate, NEVER a pure-Chinese label.
 2. Decide granularity by how the worksheet presents items: separate words listed → word items; phrases listed → phrase items; sentences listed → sentence items.
 3. Number items sequentially: number=1, 2, 3, … in order of appearance.
 4. Do NOT include Chinese translations, answer keys, or item-number prefixes inside `text`.

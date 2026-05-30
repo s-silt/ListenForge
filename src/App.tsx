@@ -18,6 +18,7 @@ function App() {
   const [saving, setSaving] = useState(false);
   const [generatedFiles, setGeneratedFiles] = useState<string[]>([]);
   const [saveStatus, setSaveStatus] = useState<{ text: string; ok: boolean } | null>(null);
+  const [templateContent, setTemplateContent] = useState("");
 
   async function pickAndExtract() {
     setError("");
@@ -34,7 +35,13 @@ function App() {
     if (typeof path !== "string") return;
     setLoading(true);
     try {
-      setProject(await invoke<Project>("extract_script", { path }));
+      // 把界面当前模板内容一并传给后端（所见即所得，无需先点「应用」）
+      setProject(
+        await invoke<Project>("extract_script", {
+          path,
+          promptOverride: templateContent || null,
+        })
+      );
     } catch (e) {
       setError(String(e));
     } finally {
@@ -181,7 +188,7 @@ function App() {
           <hr className="border-border" />
           <AiSettings />
           <hr className="border-border" />
-          <TemplatePicker />
+          <TemplatePicker onActiveContentChange={setTemplateContent} />
         </div>
       }
     />

@@ -36,10 +36,15 @@ fn infer_source_type(path: &str) -> SourceType {
 }
 
 #[tauri::command]
-async fn extract_script(path: String) -> Result<Project, String> {
+async fn extract_script(path: String, prompt_override: Option<String>) -> Result<Project, String> {
     let blocks = input_builder::build_blocks(&path)?;
     let (cfg, api_key) = llm::read_llm_config()?;
-    let prompt = prompts::selected_prompt_content();
+    // 优先用前端传来的「当前界面模板内容」(所见即所得)；
+    // 为空时才回退到持久化的 selected，避免"选了模板但没点应用→提取仍用默认"的陷阱。
+    let prompt = match prompt_override {
+        Some(p) if !p.trim().is_empty() => p,
+        _ => prompts::selected_prompt_content(),
+    };
     let provider = llm::openai::OpenAiProvider::new(cfg, api_key, prompt)?;
     let extracted = { use llm::LlmProvider; provider.extract(blocks).await? };
     Ok(assembler::build_project(extracted, &path, infer_source_type(&path)))
@@ -91,9 +96,28 @@ fn load_project_cmd(path: String) -> Result<Project, String> {
 
 #[tauri::command]
 async fn generate_audio(project: model::Project, output_dir: String) -> Result<Vec<String>, String> {
-    let provider = tts::edge::EdgeTtsProvider::new();
-    let (full, parts) = audio::generate_project_audio(&project, &provider).await?;
+    // 配置了 Azure（key + region）就自动用 Azure（付费，无限流），否则用免费 edge-tts。
+    let (full, parts) = match tts::azure::read_azure_config() {
+        Some((key, region)) => {
+            let provider = tts::azure::AzureTtsProvider::new(key, region)?;
+            audio::generate_project_audio(&project, &provider).await?
+        }
+        None => {
+            let provider = tts::edge::EdgeTtsProvider::new();
+            audio::generate_project_audio(&project, &provider).await?
+        }
+    };
     export::save_audio(&full, &parts, &output_dir, &project.title)
+}
+
+#[tauri::command]
+fn get_azure_tts_config() -> tts::azure::AzureConfigView {
+    tts::azure::read_azure_config_view()
+}
+
+#[tauri::command]
+fn save_azure_tts_config(key: String, region: String) -> Result<(), String> {
+    tts::azure::write_azure_config(&key, &region)
 }
 
 #[tauri::command]
@@ -154,7 +178,9 @@ pub fn run() {
             get_prompt_templates,
             save_prompt_selection,
             save_custom_prompt,
-            get_voices
+            get_voices,
+            get_azure_tts_config,
+            save_azure_tts_config
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

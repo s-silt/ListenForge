@@ -17,12 +17,17 @@
 use crate::tts::TtsProvider;
 use futures_util::{SinkExt, StreamExt};
 use sha2::{Digest, Sha256};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::sync::Mutex;
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use tokio::sync::Mutex as AsyncMutex;
 use tokio_tungstenite::{
     connect_async_tls_with_config,
     tungstenite::{client::IntoClientRequest, http::HeaderValue, Message},
-    Connector,
+    Connector, MaybeTlsStream, WebSocketStream,
 };
+
+/// Edge TTS 复用连接的具体类型（native-tls / Schannel）。
+type EdgeWs = WebSocketStream<MaybeTlsStream<tokio::net::TcpStream>>;
 
 // ── Constants ────────────────────────────────────────────────────────────────
 
@@ -132,11 +137,16 @@ fn timestamp_str() -> String {
 /// Synthesises speech via the Microsoft Edge TTS WebSocket API.
 ///
 /// Uses `native-tls` (Windows Schannel) for TLS — no ring or aws-lc-sys.
-pub struct EdgeTtsProvider;
+pub struct EdgeTtsProvider {
+    /// 复用单个 WebSocket 连接合成多句，避免每句新建连接累积触发微软限流。
+    conn: AsyncMutex<Option<EdgeWs>>,
+}
 
 impl EdgeTtsProvider {
     pub fn new() -> Self {
-        EdgeTtsProvider
+        EdgeTtsProvider {
+            conn: AsyncMutex::new(None),
+        }
     }
 }
 
@@ -150,7 +160,33 @@ impl Default for EdgeTtsProvider {
 /// and returns the collected MP3 bytes.
 ///
 /// This is an internal helper shared by both `synthesize` and `synthesize_ssml`.
-async fn send_ssml_and_collect(ssml: &str) -> Result<Vec<u8>, String> {
+/// 全局连接节流：保证两次 Edge TTS 连接至少间隔 MIN_CONNECT_INTERVAL，
+/// 平滑请求速率，避免连续多句合成触发微软端的限流（表现为返回空音频）。
+static LAST_CONNECT: Mutex<Option<Instant>> = Mutex::new(None);
+const MIN_CONNECT_INTERVAL: Duration = Duration::from_millis(350);
+
+async fn throttle_connect() {
+    let wait = {
+        let mut guard = LAST_CONNECT.lock().unwrap();
+        let now = Instant::now();
+        let wait = match *guard {
+            Some(prev) => {
+                let next = prev + MIN_CONNECT_INTERVAL;
+                if next > now { next - now } else { Duration::ZERO }
+            }
+            None => Duration::ZERO,
+        };
+        // 预约本次连接的时间槽，确保连续调用串行错开 ≥ MIN_CONNECT_INTERVAL
+        *guard = Some(now + wait);
+        wait
+    }; // 锁在 await 之前释放，不跨 await 持锁
+    if !wait.is_zero() {
+        tokio::time::sleep(wait).await;
+    }
+}
+
+/// 建立一个 Edge TTS WebSocket 连接并发送 speech.config（连接可复用）。
+async fn open_edge_connection() -> Result<EdgeWs, String> {
     let sec_ms_gec = generate_sec_ms_gec();
     let conn_id = connection_id();
 
@@ -195,12 +231,13 @@ async fn send_ssml_and_collect(ssml: &str) -> Result<Vec<u8>, String> {
         .map_err(|e| format!("tls connector: {e}"))?;
     let connector = Connector::NativeTls(tls_connector);
 
+    // 连接 Edge TTS 端点（境外 wss，可能走系统代理，较慢）。超时宽松（120s）以兜底永久挂死。
     let (mut ws, _) = tokio::time::timeout(
-        Duration::from_secs(15),
+        Duration::from_secs(120),
         connect_async_tls_with_config(request, None, false, Some(connector)),
     )
     .await
-    .map_err(|_| "Edge TTS 连接超时(15s)，请检查网络 / 代理".to_string())?
+    .map_err(|_| "Edge TTS 连接超时(120s)，请检查网络 / 代理".to_string())?
     .map_err(|e| format!("websocket connect: {e}"))?;
 
     let ts = timestamp_str();
@@ -215,6 +252,15 @@ async fn send_ssml_and_collect(ssml: &str) -> Result<Vec<u8>, String> {
         .await
         .map_err(|e| format!("send speech.config: {e}"))?;
 
+    Ok(ws)
+}
+
+/// 在已建立的连接上合成一句 SSML，返回 MP3 字节。可在同一连接上反复调用。
+async fn synth_on(ws: &mut EdgeWs, ssml: &str) -> Result<Vec<u8>, String> {
+    // 每句合成请求前节流：平滑「请求(turn)速率」。复用连接后不再新建连接，
+    // 所以节流必须放在每个 synthesis 请求前，而非连接建立时（否则节流失效）。
+    throttle_connect().await;
+    let ts = timestamp_str();
     let request_id = connection_id();
     let synthesis_msg = format!(
         "X-RequestId:{request_id}\r\n\
@@ -228,36 +274,50 @@ async fn send_ssml_and_collect(ssml: &str) -> Result<Vec<u8>, String> {
         .map_err(|e| format!("send ssml: {e}"))?;
 
     let mut audio_buf: Vec<u8> = Vec::new();
+    let mut binary_count = 0usize;
+    let mut seen_paths: Vec<String> = Vec::new();
 
     loop {
-        let msg = tokio::time::timeout(Duration::from_secs(30), ws.next())
+        let msg = tokio::time::timeout(Duration::from_secs(120), ws.next())
             .await
-            .map_err(|_| "Edge TTS 响应超时(30s)，请检查网络 / 代理".to_string())?
+            .map_err(|_| "Edge TTS 响应超时(120s)，请检查网络 / 代理".to_string())?
             .ok_or_else(|| "WebSocket closed before turn.end".to_string())?
             .map_err(|e| format!("websocket recv: {e}"))?;
 
         match msg {
             Message::Binary(data) => {
+                binary_count += 1;
                 if data.len() < 2 {
+                    seen_paths.push("bin(<2B)".to_string());
                     continue;
                 }
                 let header_len = u16::from_be_bytes([data[0], data[1]]) as usize;
                 let hdr_end = 2 + header_len;
                 if hdr_end > data.len() {
+                    seen_paths.push(format!("bin(hdr{header_len}>len{})", data.len()));
                     continue;
                 }
                 let header_str =
-                    std::str::from_utf8(&data[2..hdr_end]).unwrap_or("");
+                    std::str::from_utf8(&data[2..hdr_end]).unwrap_or("<非UTF8>");
+                // 诊断：记录这个 binary 的 Path + 音频负载字节数
+                if let Some(p) = header_str.lines().find(|l| l.starts_with("Path:")) {
+                    seen_paths.push(format!("bin:{}({}B)", p.trim(), data.len() - hdr_end));
+                }
                 if header_str.contains("Path:audio") {
                     audio_buf.extend_from_slice(&data[hdr_end..]);
                 }
             }
             Message::Text(text_msg) => {
+                // 诊断：记录收到的每个消息 Path（区分限流 / 错误 / 正常 turn.end）
+                if let Some(p) = text_msg.lines().find(|l| l.starts_with("Path:")) {
+                    seen_paths.push(p.trim().to_string());
+                }
                 if text_msg.contains("Path:turn.end") {
                     break;
                 }
             }
-            Message::Close(_) => {
+            Message::Close(frame) => {
+                seen_paths.push(format!("Close({frame:?})"));
                 break;
             }
             _ => {}
@@ -265,10 +325,50 @@ async fn send_ssml_and_collect(ssml: &str) -> Result<Vec<u8>, String> {
     }
 
     if audio_buf.is_empty() {
-        return Err("No audio data received from Edge TTS".to_string());
+        let ssml_preview: String = ssml.chars().take(240).collect();
+        return Err(format!(
+            "No audio data received from Edge TTS [诊断: binary={binary_count}, 消息={seen_paths:?}, SSML={ssml_preview:?}]"
+        ));
     }
 
     Ok(audio_buf)
+}
+
+impl EdgeTtsProvider {
+    /// 在「复用连接」上合成一句：复用现有连接，失败则丢弃连接、退避后重建重试。
+    /// 正常情况下整个项目所有句子复用同一个连接（连接数 ≈ 1），从根本上避免
+    /// 「每句新建连接」累积触发微软限流（表现为 No audio data）。
+    async fn synthesize_reusing(&self, ssml: &str) -> Result<Vec<u8>, String> {
+        let mut guard = self.conn.lock().await;
+        let mut last_err = String::new();
+        for attempt in 0u32..4 {
+            if attempt > 0 {
+                // 上次失败：丢弃可能已坏的连接，退避后重建（2s / 4s / 8s）
+                *guard = None;
+                tokio::time::sleep(Duration::from_secs(2u64.pow(attempt))).await;
+            }
+            // 确保有可用连接：复用现有，或新建
+            if guard.is_none() {
+                match open_edge_connection().await {
+                    Ok(ws) => *guard = Some(ws),
+                    Err(e) => {
+                        last_err = e;
+                        continue;
+                    }
+                }
+            }
+            // 在连接上合成这一句
+            let ws = guard.as_mut().unwrap();
+            match synth_on(ws, ssml).await {
+                Ok(audio) => return Ok(audio),
+                Err(e) => {
+                    last_err = e;
+                    *guard = None; // 连接可能已坏，丢弃，下一轮重建
+                }
+            }
+        }
+        Err(format!("{last_err}（已重试 4 次仍失败）"))
+    }
 }
 
 #[async_trait::async_trait]
@@ -284,7 +384,7 @@ impl TtsProvider for EdgeTtsProvider {
         volume: u32,
     ) -> Result<Vec<u8>, String> {
         let ssml = build_ssml(text, voice_id, rate, pitch, volume);
-        send_ssml_and_collect(&ssml).await
+        self.synthesize_reusing(&ssml).await
     }
 
     /// Send a pre-built SSML document directly — no additional wrapping.
@@ -293,7 +393,7 @@ impl TtsProvider for EdgeTtsProvider {
         ssml: &str,
         _voice_id: &str,
     ) -> Result<Vec<u8>, String> {
-        send_ssml_and_collect(ssml).await
+        self.synthesize_reusing(ssml).await
     }
 }
 

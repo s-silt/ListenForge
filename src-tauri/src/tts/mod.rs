@@ -1,3 +1,4 @@
+pub mod azure;
 pub mod edge;
 
 /// Trait implemented by every TTS backend.

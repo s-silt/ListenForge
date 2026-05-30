@@ -3,7 +3,11 @@ import { invoke } from "@tauri-apps/api/core";
 import { useTranslation } from "react-i18next";
 import type { PromptTemplate } from "@/types";
 
-export function TemplatePicker() {
+export function TemplatePicker({
+  onActiveContentChange,
+}: {
+  onActiveContentChange?: (content: string) => void;
+}) {
   const { t } = useTranslation();
   const [templates, setTemplates] = useState<PromptTemplate[]>([]);
   const [selectedId, setSelectedId] = useState<string>("");
@@ -22,6 +26,7 @@ export function TemplatePicker() {
         const found = tpls.find((t) => t.id === target) ?? tpls[0];
         setSelectedId(found.id);
         setContent(found.content);
+        onActiveContentChange?.(found.content);
       }
     } catch (e) {
       setStatus(`${t("template.loadFailed")}: ${String(e)}`);
@@ -37,7 +42,10 @@ export function TemplatePicker() {
   function handleSelectChange(id: string) {
     setSelectedId(id);
     const tpl = templates.find((tpl) => tpl.id === id);
-    if (tpl) setContent(tpl.content);
+    if (tpl) {
+      setContent(tpl.content);
+      onActiveContentChange?.(tpl.content);
+    }
     setStatus("");
     setStatusKind(null);
   }
@@ -134,7 +142,10 @@ export function TemplatePicker() {
         </label>
         <textarea
           value={content}
-          onChange={(e) => setContent(e.target.value)}
+          onChange={(e) => {
+            setContent(e.target.value);
+            onActiveContentChange?.(e.target.value);
+          }}
           rows={8}
           className="w-full rounded border border-input bg-background px-2 py-1 text-xs outline-none focus:border-ring font-mono resize-y"
         />

@@ -96,6 +96,9 @@ impl OpenAiProvider {
 
         json!({
             "model": self.cfg.model,
+            // 提取是结构化任务：temperature=0 保证确定性、稳定输出，
+            // 避免同一份卷子 / 模板"有时过滤干净答案、有时漏过滤"的随机性。
+            "temperature": 0,
             "messages": [
                 {
                     "role": "system",
@@ -210,6 +213,14 @@ mod tests {
         let p = make_provider();
         let body = p.build_body(&[]);
         assert_eq!(body["model"], "gpt-4o-mini");
+    }
+
+    #[test]
+    fn build_body_sets_temperature_zero() {
+        // 提取确定性：temperature 必须为 0，避免随机性导致"有时有效有时无效"
+        let p = make_provider();
+        let body = p.build_body(&[]);
+        assert_eq!(body["temperature"], 0);
     }
 
     #[test]

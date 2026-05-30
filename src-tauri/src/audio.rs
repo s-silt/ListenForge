@@ -104,7 +104,7 @@ pub async fn generate_project_audio(
         // ── Optional Chinese instruction ──────────────────────────────────
         if part.read_zh_instruction {
             if let Some(ref zh) = part.zh_instruction {
-                if !zh.is_empty() {
+                if zh.chars().any(|c| c.is_alphanumeric()) {
                     let bytes = provider
                         .synthesize(zh, &vc.zh_voice, vc.rate, vc.pitch, vc.volume)
                         .await
@@ -120,7 +120,7 @@ pub async fn generate_project_audio(
         // ── Part label (English portion) ──────────────────────────────────
         if part.read_label {
             let en_label = strip_chinese_parens(&part.label);
-            if !en_label.is_empty() {
+            if en_label.chars().any(|c| c.is_ascii_alphanumeric()) {
                 let bytes = provider
                     .synthesize(&en_label, &vc.en_voice, vc.rate, vc.pitch, vc.volume)
                     .await
@@ -160,6 +160,14 @@ pub async fn generate_project_audio(
                     part_mp3.extend_from_slice(&bytes);
                     part_mp3.extend_from_slice(&silence_mp3(600));
                 }
+            }
+
+            // 正文用英文嗓子(en_voice)合成：若不含任何 ASCII 字母 / 数字
+            //（纯中文 / 纯标点，如"词组："这类分类小标题），英文嗓子读不出、
+            // edge-tts 会返回空音频，故跳过以免整段合成失败。
+            if !item.text.chars().any(|c| c.is_ascii_alphanumeric()) {
+                part_mp3.extend_from_slice(&silence_mp3(item.gap_after_ms));
+                continue;
             }
 
             // Body text: use speaker-assigned voice when speaker is set.

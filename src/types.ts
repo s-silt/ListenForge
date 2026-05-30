@@ -77,6 +77,11 @@ export interface LlmConfigView {
   has_api_key: boolean;
 }
 
+export interface AzureConfigView {
+  region: string;
+  has_key: boolean;
+}
+
 export interface PromptTemplate {
   id: string;
   name: string;
