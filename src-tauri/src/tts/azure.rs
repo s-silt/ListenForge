@@ -84,6 +84,12 @@ impl TtsProvider for AzureTtsProvider {
     async fn synthesize_ssml(&self, ssml: &str, _voice_id: &str) -> Result<Vec<u8>, String> {
         self.post_ssml(ssml).await
     }
+
+    /// Azure 是无状态 REST，可有界并发。取 5：在免费层 ~20 TPS 之下留有余量，
+    /// 避免触发 [`Self::post_ssml`] 中无重试的 429 路径。
+    fn max_concurrency(&self) -> usize {
+        5
+    }
 }
 
 // ─── Azure TTS 配置（独立存 ~/Documents/ListenForge/azure_tts.json，不混 .env）──

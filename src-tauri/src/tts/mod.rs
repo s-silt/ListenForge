@@ -38,6 +38,21 @@ pub trait TtsProvider: Send + Sync {
         ssml: &str,
         voice_id: &str,
     ) -> Result<Vec<u8>, String>;
+
+    /// Max number of in-flight [`synthesize`](Self::synthesize) calls this
+    /// backend tolerates.
+    ///
+    /// Default is `1` (fully serial, byte-identical to the sequential
+    /// pipeline). Only override to `> 1` if the backend is **stateless** and
+    /// **rate-limit-safe** under concurrency (e.g. a plain REST endpoint).
+    /// Backends that reuse a single connection or rely on throttling
+    /// (such as Edge over a shared WebSocket) MUST keep the default of `1`.
+    ///
+    /// This is a plain synchronous method — `#[async_trait]` and object-safety
+    /// are unaffected.
+    fn max_concurrency(&self) -> usize {
+        1
+    }
 }
 
 /// A single pre-configured voice.
