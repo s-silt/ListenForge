@@ -6,7 +6,7 @@ use crate::llm::schema::extracted_script_schema;
 
 /// 对返回给前端的错误文本做密钥脱敏：把形如 `sk-XXXX` 的 API key 片段替换为 `[REDACTED]`。
 /// 第三方 / 中转 LLM 的错误响应体可能回显鉴权信息，截断 + 脱敏后再外露。
-fn redact_secrets(s: &str) -> String {
+pub(crate) fn redact_secrets(s: &str) -> String {
     fn is_token_char(b: u8) -> bool {
         b.is_ascii_alphanumeric() || b == b'-' || b == b'_' || b == b'.'
     }

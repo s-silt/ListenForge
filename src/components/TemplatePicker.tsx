@@ -1,9 +1,11 @@
-import { useState, useEffect } from "react";
+import { memo, useState, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { useTranslation } from "react-i18next";
 import type { PromptTemplate } from "@/types";
 
-export function TemplatePicker({
+// memo：唯一 prop onActiveContentChange 来自 App 的 useState setter（身份稳定），
+// 包裹后编辑器击键触发的 App 重渲不会波及它。
+export const TemplatePicker = memo(function TemplatePicker({
   onActiveContentChange,
 }: {
   onActiveContentChange?: (content: string) => void;
@@ -186,4 +188,4 @@ export function TemplatePicker({
       </p>
     </div>
   );
-}
+});

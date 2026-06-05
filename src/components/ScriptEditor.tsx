@@ -1,4 +1,4 @@
-import { useCallback } from "react";
+import { memo, useCallback, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import type { Project, Part, Item } from "@/types";
 import { cn } from "@/lib/utils";
@@ -75,11 +75,14 @@ interface ItemRowProps {
   item: Item;
   isFirst: boolean;
   isLast: boolean;
-  onUpdate: (patch: Partial<Item>) => void;
-  onMove: (dir: "up" | "down") => void;
+  // 接收 itemId 的稳定回调（由 PartBlock 提供），配合 memo 避免逐键重渲整列
+  onUpdate: (itemId: string, patch: Partial<Item>) => void;
+  onMove: (itemId: string, dir: "up" | "down") => void;
 }
 
-function ItemRow({ item, isFirst, isLast, onUpdate, onMove }: ItemRowProps) {
+// memo：仅当本行自身 props（item 引用、首/末标志、稳定回调）变化时才重渲。
+// 编辑某一行的文本只会让该行的 item 引用变化 → 只重渲这一行。
+const ItemRow = memo(function ItemRow({ item, isFirst, isLast, onUpdate, onMove }: ItemRowProps) {
   const { t } = useTranslation();
 
   return (
@@ -96,7 +99,7 @@ function ItemRow({ item, isFirst, isLast, onUpdate, onMove }: ItemRowProps) {
           type="checkbox"
           title={t("editor.enableItem")}
           checked={item.enabled}
-          onChange={(e) => onUpdate({ enabled: e.target.checked })}
+          onChange={(e) => onUpdate(item.id, { enabled: e.target.checked })}
           className="h-3.5 w-3.5 shrink-0 cursor-pointer accent-primary"
         />
 
@@ -105,7 +108,7 @@ function ItemRow({ item, isFirst, isLast, onUpdate, onMove }: ItemRowProps) {
           type="checkbox"
           title={t("editor.readNumber")}
           checked={item.read_number}
-          onChange={(e) => onUpdate({ read_number: e.target.checked })}
+          onChange={(e) => onUpdate(item.id, { read_number: e.target.checked })}
           className="h-3.5 w-3.5 shrink-0 cursor-pointer accent-primary"
         />
         <span className="shrink-0 text-xs text-muted-foreground">
@@ -117,7 +120,7 @@ function ItemRow({ item, isFirst, isLast, onUpdate, onMove }: ItemRowProps) {
           type="text"
           value={item.text}
           disabled={!item.enabled}
-          onChange={(e) => onUpdate({ text: e.target.value })}
+          onChange={(e) => onUpdate(item.id, { text: e.target.value })}
           className="min-w-0 flex-1 rounded border border-input bg-background px-1.5 py-0.5 text-sm outline-none focus:border-ring disabled:cursor-not-allowed disabled:opacity-50"
         />
 
@@ -125,7 +128,7 @@ function ItemRow({ item, isFirst, isLast, onUpdate, onMove }: ItemRowProps) {
         <button
           title={t("editor.moveUp")}
           disabled={isFirst}
-          onClick={() => onMove("up")}
+          onClick={() => onMove(item.id, "up")}
           className="shrink-0 rounded px-1 py-0.5 text-xs hover:bg-muted disabled:pointer-events-none disabled:opacity-30"
         >
           ↑
@@ -134,7 +137,7 @@ function ItemRow({ item, isFirst, isLast, onUpdate, onMove }: ItemRowProps) {
         <button
           title={t("editor.moveDown")}
           disabled={isLast}
-          onClick={() => onMove("down")}
+          onClick={() => onMove(item.id, "down")}
           className="shrink-0 rounded px-1 py-0.5 text-xs hover:bg-muted disabled:pointer-events-none disabled:opacity-30"
         >
           ↓
@@ -153,7 +156,7 @@ function ItemRow({ item, isFirst, isLast, onUpdate, onMove }: ItemRowProps) {
                 ? "border-primary bg-primary/10 font-medium"
                 : "border-border hover:bg-muted"
             )}
-            onClick={() => onUpdate({ repeat: 1 })}
+            onClick={() => onUpdate(item.id, { repeat: 1 })}
           >
             1
           </button>
@@ -164,7 +167,7 @@ function ItemRow({ item, isFirst, isLast, onUpdate, onMove }: ItemRowProps) {
                 ? "border-primary bg-primary/10 font-medium"
                 : "border-border hover:bg-muted"
             )}
-            onClick={() => onUpdate({ repeat: 2 })}
+            onClick={() => onUpdate(item.id, { repeat: 2 })}
           >
             2
           </button>
@@ -175,7 +178,7 @@ function ItemRow({ item, isFirst, isLast, onUpdate, onMove }: ItemRowProps) {
           <span className="text-xs text-muted-foreground">{t("editor.gapLabel")}</span>
           <select
             value={item.gap_after_ms}
-            onChange={(e) => onUpdate({ gap_after_ms: Number(e.target.value) })}
+            onChange={(e) => onUpdate(item.id, { gap_after_ms: Number(e.target.value) })}
             className="rounded border border-input bg-background px-1 py-0.5 text-xs outline-none focus:border-ring"
           >
             {GAP_OPTIONS.map((o) => (
@@ -183,29 +186,53 @@ function ItemRow({ item, isFirst, isLast, onUpdate, onMove }: ItemRowProps) {
                 {o.label}
               </option>
             ))}
+            {/* keep current value if not one of the presets（否则 select 显示空白） */}
+            {!GAP_OPTIONS.some((o) => o.value === item.gap_after_ms) && (
+              <option value={item.gap_after_ms}>
+                {(item.gap_after_ms / 1000).toString()}s
+              </option>
+            )}
           </select>
         </div>
       </div>
     </div>
   );
-}
+});
 
 // ── PartBlock ─────────────────────────────────────────────────────────────────
 
 interface PartBlockProps {
   part: Part;
-  onUpdatePart: (patch: Partial<Part>) => void;
-  onUpdateItem: (itemId: string, patch: Partial<Item>) => void;
-  onMoveItem: (itemId: string, dir: "up" | "down") => void;
+  // 接收 partId 的稳定回调（由 ScriptEditor 提供）
+  onUpdatePart: (partId: string, patch: Partial<Part>) => void;
+  onUpdateItem: (partId: string, itemId: string, patch: Partial<Item>) => void;
+  onMoveItem: (partId: string, itemId: string, dir: "up" | "down") => void;
 }
 
-function PartBlock({
+// memo：仅当本 part 引用或上游稳定回调变化时才重渲。编辑某 part 内一行，
+// 只有该 part 的引用会变 → 其它 PartBlock 直接跳过重渲。
+const PartBlock = memo(function PartBlock({
   part,
   onUpdatePart,
   onUpdateItem,
   onMoveItem,
 }: PartBlockProps) {
   const { t } = useTranslation();
+  const partId = part.id;
+
+  // part 作用域内的稳定回调：传给子组件后，ItemRow 的 memo 才能生效
+  const updateThisPart = useCallback(
+    (patch: Partial<Part>) => onUpdatePart(partId, patch),
+    [onUpdatePart, partId]
+  );
+  const updateItemInPart = useCallback(
+    (itemId: string, patch: Partial<Item>) => onUpdateItem(partId, itemId, patch),
+    [onUpdateItem, partId]
+  );
+  const moveItemInPart = useCallback(
+    (itemId: string, dir: "up" | "down") => onMoveItem(partId, itemId, dir),
+    [onMoveItem, partId]
+  );
 
   return (
     <div className="rounded border bg-card p-3">
@@ -218,7 +245,7 @@ function PartBlock({
             <input
               type="checkbox"
               checked={part.read_label}
-              onChange={(e) => onUpdatePart({ read_label: e.target.checked })}
+              onChange={(e) => updateThisPart({ read_label: e.target.checked })}
               className="h-3.5 w-3.5 accent-primary"
             />
             {t("editor.readLabel")}
@@ -228,7 +255,7 @@ function PartBlock({
               type="checkbox"
               checked={part.read_zh_instruction}
               onChange={(e) =>
-                onUpdatePart({ read_zh_instruction: e.target.checked })
+                updateThisPart({ read_zh_instruction: e.target.checked })
               }
               className="h-3.5 w-3.5 accent-primary"
             />
@@ -242,7 +269,7 @@ function PartBlock({
           value={part.zh_instruction ?? ""}
           placeholder={t("editor.zhInstructionPlaceholder")}
           onChange={(e) =>
-            onUpdatePart({
+            updateThisPart({
               zh_instruction: e.target.value === "" ? null : e.target.value,
             })
           }
@@ -258,14 +285,14 @@ function PartBlock({
             item={item}
             isFirst={idx === 0}
             isLast={idx === part.items.length - 1}
-            onUpdate={(patch) => onUpdateItem(item.id, patch)}
-            onMove={(dir) => onMoveItem(item.id, dir)}
+            onUpdate={updateItemInPart}
+            onMove={moveItemInPart}
           />
         ))}
       </div>
     </div>
   );
-}
+});
 
 // ── ScriptEditor (exported) ───────────────────────────────────────────────────
 
@@ -275,25 +302,33 @@ interface ScriptEditorProps {
 }
 
 export function ScriptEditor({ project, onChange }: ScriptEditorProps) {
+  // 用 ref 持有最新 project / onChange，使下面的回调身份稳定（deps []），
+  // 从而让 PartBlock / ItemRow 的 React.memo 真正生效（回调不再随每次击键重建）。
+  // 回调在用户事件时才触发，此时读到的 *Ref.current 已是最新一次 render 的值，无 stale 风险。
+  const projectRef = useRef(project);
+  projectRef.current = project;
+  const onChangeRef = useRef(onChange);
+  onChangeRef.current = onChange;
+
   const handleUpdatePart = useCallback(
     (partId: string, patch: Partial<Part>) => {
-      onChange(updatePart(project, partId, patch));
+      onChangeRef.current(updatePart(projectRef.current, partId, patch));
     },
-    [project, onChange]
+    []
   );
 
   const handleUpdateItem = useCallback(
     (partId: string, itemId: string, patch: Partial<Item>) => {
-      onChange(updateItem(project, partId, itemId, patch));
+      onChangeRef.current(updateItem(projectRef.current, partId, itemId, patch));
     },
-    [project, onChange]
+    []
   );
 
   const handleMoveItem = useCallback(
     (partId: string, itemId: string, dir: "up" | "down") => {
-      onChange(moveItem(project, partId, itemId, dir));
+      onChangeRef.current(moveItem(projectRef.current, partId, itemId, dir));
     },
-    [project, onChange]
+    []
   );
 
   return (
@@ -303,11 +338,9 @@ export function ScriptEditor({ project, onChange }: ScriptEditorProps) {
         <PartBlock
           key={part.id}
           part={part}
-          onUpdatePart={(patch) => handleUpdatePart(part.id, patch)}
-          onUpdateItem={(itemId, patch) =>
-            handleUpdateItem(part.id, itemId, patch)
-          }
-          onMoveItem={(itemId, dir) => handleMoveItem(part.id, itemId, dir)}
+          onUpdatePart={handleUpdatePart}
+          onUpdateItem={handleUpdateItem}
+          onMoveItem={handleMoveItem}
         />
       ))}
     </div>

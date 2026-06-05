@@ -7,7 +7,6 @@
 // ── XML escape ────────────────────────────────────────────────────────────────
 
 /// Escape the five XML special characters so they are safe inside SSML text.
-#[allow(dead_code)]
 pub(crate) fn xml_escape(s: &str) -> String {
     s.replace('&', "&amp;")
         .replace('<', "&lt;")

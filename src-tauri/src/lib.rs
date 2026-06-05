@@ -12,15 +12,6 @@ pub mod tts;
 
 use model::{Project, SourceType};
 use std::path::Path;
-use tauri::Emitter;
-use serde::Serialize;
-
-#[derive(Clone, Serialize)]
-struct ProgressPayload {
-    current: u32,
-    total: u32,
-    message: String,
-}
 
 fn infer_source_type(path: &str) -> SourceType {
     match Path::new(path)
@@ -37,7 +28,14 @@ fn infer_source_type(path: &str) -> SourceType {
 
 #[tauri::command]
 async fn extract_script(path: String, prompt_override: Option<String>) -> Result<Project, String> {
-    let blocks = input_builder::build_blocks(&path)?;
+    // build_blocks 含 pdfium FFI、文件 IO、base64 等同步阻塞重活；放到 spawn_blocking
+    // 线程池执行，避免阻塞 tokio 异步执行器（并发提取时会饿死 worker）。
+    let blocks = {
+        let path = path.clone();
+        tokio::task::spawn_blocking(move || input_builder::build_blocks(&path))
+            .await
+            .map_err(|e| format!("提取任务执行失败: {e}"))??
+    };
     let (cfg, api_key) = llm::read_llm_config()?;
     // 优先用前端传来的「当前界面模板内容」(所见即所得)；
     // 为空时才回退到持久化的 selected，避免"选了模板但没点应用→提取仍用默认"的陷阱。
@@ -63,20 +61,6 @@ fn save_prompt_selection(id: String) -> Result<(), String> {
 #[tauri::command]
 fn save_custom_prompt(name: String, content: String) -> Result<String, String> {
     prompts::save_custom(&name, &content)
-}
-
-#[tauri::command]
-async fn demo_progress(app: tauri::AppHandle) -> Result<(), String> {
-    let total = 5;
-    for i in 1..=total {
-        app.emit(
-            "progress",
-            ProgressPayload { current: i, total, message: format!("step {i}") },
-        )
-        .map_err(|e| e.to_string())?;
-        tokio::time::sleep(std::time::Duration::from_millis(300)).await;
-    }
-    Ok(())
 }
 
 #[tauri::command]
@@ -170,7 +154,6 @@ pub fn run() {
             health,
             save_project_cmd,
             load_project_cmd,
-            demo_progress,
             extract_script,
             generate_audio,
             get_llm_config,

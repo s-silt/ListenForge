@@ -214,7 +214,15 @@ fn read_prompts_file() -> Result<PromptsFile, String> {
 /// 用于「显示 / 提取」路径的容错读取：损坏时降级为内置默认（不阻塞使用）。
 /// 写入路径必须改用 `read_prompts_file()?`，以在损坏时报错、避免覆盖用户数据。
 fn read_prompts_file_or_default() -> PromptsFile {
-    read_prompts_file().unwrap_or_default()
+    match read_prompts_file() {
+        Ok(pf) => pf,
+        Err(e) => {
+            // 不阻塞使用，但留痕：避免用户「模板文件损坏却被静默降级为默认、
+            // 自定义模板像凭空消失」而无从排查。原文件已在 read_prompts_file 备份为 .bak。
+            eprintln!("[ListenForge] prompts.json 不可用，已临时降级为内置默认模板: {e}");
+            PromptsFile::default()
+        }
+    }
 }
 
 fn write_prompts_file(pf: &PromptsFile) -> Result<(), String> {

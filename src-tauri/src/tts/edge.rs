@@ -167,7 +167,9 @@ const MIN_CONNECT_INTERVAL: Duration = Duration::from_millis(350);
 
 async fn throttle_connect() {
     let wait = {
-        let mut guard = LAST_CONNECT.lock().unwrap();
+        // 节流状态是 advisory 的单个时间戳，无需保护的不变量；
+        // 容忍锁中毒（into_inner 取回 guard），避免某次 panic 永久 brick 后续所有 Edge 合成。
+        let mut guard = LAST_CONNECT.lock().unwrap_or_else(|p| p.into_inner());
         let now = Instant::now();
         let wait = match *guard {
             Some(prev) => {

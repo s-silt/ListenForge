@@ -31,9 +31,8 @@ pub trait TtsProvider: Send + Sync {
     /// `voice_id` is used only for routing / connection parameters; the actual
     /// voice selection lives inside the SSML `<voice name="…">` element.
     ///
-    /// Default implementation delegates to [`TtsProvider::synthesize`] with
-    /// the SSML as the text and rate/pitch/volume set to neutral values
-    /// (`0, 0, 100`).  Backends that can accept raw SSML should override this.
+    /// This is a required method with no default; each backend sends the SSML
+    /// verbatim to its endpoint.
     async fn synthesize_ssml(
         &self,
         ssml: &str,

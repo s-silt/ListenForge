@@ -65,12 +65,6 @@ export interface Project {
   export_config: ExportConfig;
 }
 
-export interface ProgressPayload {
-  current: number;
-  total: number;
-  message: string;
-}
-
 export interface LlmConfigView {
   base_url: string;
   model: string;

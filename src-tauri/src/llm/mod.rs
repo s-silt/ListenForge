@@ -140,6 +140,17 @@ pub fn read_config_view() -> LlmConfigView {
 /// 将配置写入指定目录下的 `.env` 文件(可测试的纯函数)。
 /// 若 `api_key` 为 None 或空串,尝试保留目标文件中的旧 key。
 pub fn write_dotenv_to(dir: &std::path::Path, base_url: &str, model: &str, api_key: Option<&str>) -> Result<(), String> {
+    // 后端兜底校验 base_url：必须是合法的 http(s) URL。前端虽已校验，但 command
+    // 可被直接调用绕过，故在落盘前再校验一次，避免写入垃圾值导致后续请求才报错。
+    let parsed = reqwest::Url::parse(base_url)
+        .map_err(|e| format!("API 地址不是合法 URL: {e}"))?;
+    if !matches!(parsed.scheme(), "http" | "https") {
+        return Err(format!(
+            "API 地址必须以 http:// 或 https:// 开头（当前 scheme: {}）",
+            parsed.scheme()
+        ));
+    }
+
     std::fs::create_dir_all(dir)
         .map_err(|e| format!("创建目录失败: {e}"))?;
 

@@ -35,7 +35,9 @@ pub(crate) fn silence_mp3(ms: u32) -> Vec<u8> {
     const FRAME_HEADER: [u8; 4] = [0xFF, 0xF3, 0x64, 0xC0];
     const FRAME_SIZE: usize = 144;
     const FRAME_MS: u32 = 24; // 576 samples / 24000 Hz = 24 ms
-    let n = ((ms + FRAME_MS - 1) / FRAME_MS).max(1); // ceiling division, at least 1
+    // ceiling division, at least 1。div_ceil 避免 `ms + FRAME_MS - 1` 在极大 gap 值下
+    // 溢出 u32（debug 构建会 panic）。
+    let n = ms.div_ceil(FRAME_MS).max(1);
     let mut out = Vec::with_capacity(n as usize * FRAME_SIZE);
     for _ in 0..n {
         out.extend_from_slice(&FRAME_HEADER);
@@ -74,6 +76,19 @@ fn voice_for_speaker<'a>(
             }
         }
     }
+}
+
+/// 正文嗓音解析：`item.override_voice` 非空白时优先使用（用户在 UI 逐条指定的声音），
+/// 否则回退到按 speaker 分配的 `speaker_voice`。
+///
+/// 注意：调用方仍须先调用 [`voice_for_speaker`] 以维护 `seen` 的出场顺序（teacher /
+/// student 角色分配依赖它），本函数只决定最终采用哪个嗓音。
+fn resolve_body_voice<'a>(override_voice: &'a Option<String>, speaker_voice: &'a str) -> &'a str {
+    override_voice
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .unwrap_or(speaker_voice)
 }
 
 // ── Main pipeline ─────────────────────────────────────────────────────────────
@@ -170,8 +185,10 @@ pub async fn generate_project_audio(
                 continue;
             }
 
-            // Body text: use speaker-assigned voice when speaker is set.
-            let body_voice = voice_for_speaker(&item.speaker, &mut seen_speakers, vc);
+            // Body text: per-item override_voice 优先，否则按 speaker 分配。
+            // voice_for_speaker 仍需调用以维护 seen_speakers 的出场顺序。
+            let speaker_voice = voice_for_speaker(&item.speaker, &mut seen_speakers, vc);
+            let body_voice = resolve_body_voice(&item.override_voice, speaker_voice);
 
             // Body text (first reading)
             let bytes = provider
@@ -209,10 +226,11 @@ pub async fn generate_project_audio(
     }
 
     // Full MP3 = all parts concatenated in order.
-    let full_mp3: Vec<u8> = parts_out
-        .iter()
-        .flat_map(|(_, bytes)| bytes.iter().copied())
-        .collect();
+    let total: usize = parts_out.iter().map(|(_, bytes)| bytes.len()).sum();
+    let mut full_mp3: Vec<u8> = Vec::with_capacity(total);
+    for (_, bytes) in &parts_out {
+        full_mp3.extend_from_slice(bytes);
+    }
 
     Ok((full_mp3, parts_out))
 }
@@ -434,6 +452,26 @@ mod tests {
         voice_for_speaker(&Some("B".into()), &mut seen, &vc);
         let v = voice_for_speaker(&Some("C".into()), &mut seen, &vc);
         assert_eq!(v, "en-voice");
+    }
+
+    // ── resolve_body_voice ────────────────────────────────────────────────
+
+    #[test]
+    fn resolve_body_voice_none_uses_speaker_voice() {
+        assert_eq!(resolve_body_voice(&None, "speaker-voice"), "speaker-voice");
+    }
+
+    #[test]
+    fn resolve_body_voice_override_wins() {
+        let ov = Some("en-US-AnaNeural".to_string());
+        assert_eq!(resolve_body_voice(&ov, "speaker-voice"), "en-US-AnaNeural");
+    }
+
+    #[test]
+    fn resolve_body_voice_blank_override_falls_back() {
+        // 空白 / 全空格的 override 视为未设置，回退到 speaker_voice
+        assert_eq!(resolve_body_voice(&Some("".into()), "speaker-voice"), "speaker-voice");
+        assert_eq!(resolve_body_voice(&Some("   ".into()), "speaker-voice"), "speaker-voice");
     }
 
     // ── E2E (network — run with `cargo test -- --ignored`) ────────────────

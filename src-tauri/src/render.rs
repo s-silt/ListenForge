@@ -110,13 +110,27 @@ mod tests {
     use super::*;
     use serial_test::serial;
 
+    // 默认指向开发机本地夹具；可用环境变量 LISTENFORGE_TEST_PDF 覆盖。
     const TEST_PDF: &str = r"C:\Users\sxl\Documents\ListenForge\Unit 2小练习.pdf";
     const PNG_MAGIC: [u8; 4] = [0x89, 0x50, 0x4E, 0x47];
+
+    /// 夹具存在则返回路径，否则打印跳过提示并返回 None（使 cargo test 默认全绿）。
+    /// 路径优先取环境变量 LISTENFORGE_TEST_PDF，否则用默认 const。
+    fn pdf_fixture_or_skip() -> Option<String> {
+        let p = std::env::var("LISTENFORGE_TEST_PDF").unwrap_or_else(|_| TEST_PDF.to_string());
+        if std::path::Path::new(&p).exists() {
+            Some(p)
+        } else {
+            eprintln!("跳过 PDF 夹具测试：未找到 {p}（设 LISTENFORGE_TEST_PDF 指向真实 PDF 后可运行）");
+            None
+        }
+    }
 
     #[test]
     #[serial]
     fn extract_pdf_text_returns_text() {
-        let text = extract_pdf_text(TEST_PDF).expect("extract_pdf_text 应成功");
+        let Some(pdf) = pdf_fixture_or_skip() else { return };
+        let text = extract_pdf_text(&pdf).expect("extract_pdf_text 应成功");
         let char_count = text.trim().chars().count();
         assert!(
             char_count >= 50,
@@ -130,7 +144,8 @@ mod tests {
     #[test]
     #[serial]
     fn render_pdf_produces_valid_pngs() {
-        let pages = render_pdf_to_pngs(TEST_PDF, 2.0)
+        let Some(pdf) = pdf_fixture_or_skip() else { return };
+        let pages = render_pdf_to_pngs(&pdf, 2.0)
             .expect("render_pdf_to_pngs 应成功");
 
         assert!(

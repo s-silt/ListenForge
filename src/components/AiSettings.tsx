@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { memo, useState, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { useTranslation } from "react-i18next";
 import type { LlmConfigView } from "@/types";
@@ -6,7 +6,8 @@ import type { LlmConfigView } from "@/types";
 const DEFAULT_BASE_URL = "https://api.openai.com/v1";
 const DEFAULT_MODEL = "gpt-5.4-mini";
 
-export function AiSettings() {
+// memo：AiSettings 无 project 派生 props，包裹后编辑器击键触发的 App 重渲不会波及它。
+export const AiSettings = memo(function AiSettings() {
   const { t } = useTranslation();
   const [baseUrl, setBaseUrl] = useState(DEFAULT_BASE_URL);
   const [model, setModel] = useState(DEFAULT_MODEL);
@@ -139,4 +140,4 @@ export function AiSettings() {
       )}
     </div>
   );
-}
+});

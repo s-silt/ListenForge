@@ -110,8 +110,14 @@ fn build_blocks_from_docx(path: &str) -> Result<Vec<ContentBlock>, String> {
             Ok(Event::Start(ref e)) | Ok(Event::Empty(ref e)) => {
                 // <w:t> 或带命名空间前缀的变体
                 let name = e.local_name();
-                if name.as_ref() == b"t" {
-                    inside_wt = true;
+                match name.as_ref() {
+                    b"t" => inside_wt = true,
+                    // 换行 / 制表符是 <w:r> 内与 <w:t> 平级的空元素
+                    b"br" => text_parts.push("\n".to_string()),
+                    b"tab" => text_parts.push("\t".to_string()),
+                    // 自闭合空段落 <w:p/> 也要产生一个段落分隔
+                    b"p" => text_parts.push("\n".to_string()),
+                    _ => {}
                 }
             }
             Ok(Event::Text(e)) if inside_wt => {
@@ -122,8 +128,11 @@ fn build_blocks_from_docx(path: &str) -> Result<Vec<ContentBlock>, String> {
                 inside_wt = false;
             }
             Ok(Event::End(ref e)) => {
-                if e.local_name().as_ref() == b"t" {
-                    inside_wt = false;
+                match e.local_name().as_ref() {
+                    b"t" => inside_wt = false,
+                    // 段落结束 → 换行，恢复行/段落结构
+                    b"p" => text_parts.push("\n".to_string()),
+                    _ => {}
                 }
             }
             Ok(Event::Eof) => break,
@@ -145,12 +154,25 @@ mod tests {
     use super::*;
     use serial_test::serial;
 
+    // 默认指向开发机本地夹具；可用环境变量 LISTENFORGE_TEST_PDF 覆盖。
     const TEST_PDF: &str = r"C:\Users\sxl\Documents\ListenForge\Unit 2小练习.pdf";
+
+    /// 夹具存在则返回路径，否则打印跳过提示并返回 None（使 cargo test 默认全绿）。
+    fn pdf_fixture_or_skip() -> Option<String> {
+        let p = std::env::var("LISTENFORGE_TEST_PDF").unwrap_or_else(|_| TEST_PDF.to_string());
+        if std::path::Path::new(&p).exists() {
+            Some(p)
+        } else {
+            eprintln!("跳过 PDF 夹具测试：未找到 {p}（设 LISTENFORGE_TEST_PDF 指向真实 PDF 后可运行）");
+            None
+        }
+    }
 
     #[test]
     #[serial]
     fn build_blocks_pdf_produces_text_block_for_textual_pdf() {
-        let blocks = build_blocks(TEST_PDF).expect("build_blocks PDF 应成功");
+        let Some(pdf) = pdf_fixture_or_skip() else { return };
+        let blocks = build_blocks(&pdf).expect("build_blocks PDF 应成功");
 
         assert_eq!(
             blocks.len(),

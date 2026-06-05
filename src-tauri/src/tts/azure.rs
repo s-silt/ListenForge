@@ -47,7 +47,12 @@ impl AzureTtsProvider {
         let status = resp.status();
         if !status.is_success() {
             let body = resp.text().await.unwrap_or_default();
-            let snippet: String = body.chars().take(300).collect();
+            // 与 OpenAI 链路一致：先脱敏(sk-/Bearer)，再把已知明文 key 兜底抹掉，最后截断外露
+            let mut redacted = crate::llm::openai::redact_secrets(&body);
+            if !self.key.is_empty() {
+                redacted = redacted.replace(&self.key, "[REDACTED]");
+            }
+            let snippet: String = redacted.chars().take(300).collect();
             return Err(format!("Azure TTS 返回 {status}: {snippet}"));
         }
 
@@ -109,6 +114,16 @@ pub fn read_azure_config() -> Option<(String, String)> {
 /// 写入 Azure key + region。
 pub fn write_azure_config(key: &str, region: &str) -> Result<(), String> {
     let path = azure_config_path().ok_or_else(|| "无法定位 Documents 目录".to_string())?;
+
+    // region 被直接拼进端点域名 `{region}.tts.speech.microsoft.com`，落盘前校验字符集，
+    // 防止非法值注入到 URL（空值允许：清空 region 即停用 Azure，回退 edge-tts）。
+    let region_trimmed = region.trim();
+    if !region_trimmed.is_empty()
+        && !region_trimmed.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit())
+    {
+        return Err("Azure region 仅允许小写字母和数字（如 eastasia）".to_string());
+    }
+
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent).map_err(|e| format!("创建目录失败: {e}"))?;
     }
@@ -124,7 +139,7 @@ pub fn write_azure_config(key: &str, region: &str) -> Result<(), String> {
     };
     let cfg = AzureConfigFile {
         key: final_key,
-        region: region.trim().to_string(),
+        region: region_trimmed.to_string(),
     };
     let json = serde_json::to_string_pretty(&cfg).map_err(|e| e.to_string())?;
     std::fs::write(&path, json).map_err(|e| format!("写入 azure_tts.json 失败: {e}"))
