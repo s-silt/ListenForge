@@ -18,6 +18,8 @@ pub enum TaskType {
     ListenAndWrite,
     ListenAndCircle,
     ListenPassage,
+    /// 音标单词卡：按拼写分组朗读元音单词(自然拼读 / 音标教学)。
+    Phonics,
     Unknown,
 }
 

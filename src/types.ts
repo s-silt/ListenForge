@@ -7,6 +7,7 @@ export type TaskType =
   | "listen_and_write"
   | "listen_and_circle"
   | "listen_passage"
+  | "phonics"
   | "unknown";
 
 export interface Item {

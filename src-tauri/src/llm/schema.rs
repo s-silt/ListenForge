@@ -2,7 +2,7 @@ use serde_json::{json, Value};
 
 /// 生成 ExtractedScript 的 JSON Schema。
 /// 每个 object additionalProperties:false,所有属性入 required,
-/// Option<T> 用 ["T","null"] 类型,task_type 用字符串 enum(七值)。
+/// Option<T> 用 ["T","null"] 类型,task_type 用字符串 enum(八值)。
 pub fn extracted_script_schema() -> Value {
     json!({
         "type": "object",
@@ -31,6 +31,7 @@ pub fn extracted_script_schema() -> Value {
                                 "listen_and_write",
                                 "listen_and_circle",
                                 "listen_passage",
+                                "phonics",
                                 "unknown"
                             ]
                         },
@@ -85,7 +86,8 @@ mod tests {
             .unwrap();
         let vals: Vec<&str> = enum_vals.iter().map(|v| v.as_str().unwrap()).collect();
         assert!(vals.contains(&"listen_passage"), "应包含 listen_passage, 实际: {:?}", vals);
-        assert_eq!(vals.len(), 7, "task_type enum 应有 7 个值");
+        assert!(vals.contains(&"phonics"), "应包含 phonics, 实际: {:?}", vals);
+        assert_eq!(vals.len(), 8, "task_type enum 应有 8 个值");
     }
 
     #[test]

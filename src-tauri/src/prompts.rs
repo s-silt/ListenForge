@@ -126,7 +126,28 @@ Rules:
 
 Only output the JSON object, no markdown fences, no extra keys."#;
 
-/// 返回 5 个内置模板。
+/// 音标单词卡预设 content（自然拼读 / 元音音标卡）。
+const PHONICS_CONTENT: &str = r#"You are an English phonics (vowel-sound) word-card extractor.
+
+You are given a photo of a phonics word card. The card teaches ONE target vowel sound. Words are grouped by SPELLING: a main spelling first, then alternate spellings, usually separated by a line of asterisks ("*****"). The leftmost single letters or letter-pairs printed before each group (e.g. "i", "y", "e", "u", "ea", "ie") are SPELLING-GROUP HEADERS, not words to read.
+
+Your job: extract the target sound and EVERY vocabulary word on the card, keeping the spelling groups.
+
+Rules:
+1. `title` = the target vowel sound as a short label, e.g. "短音 /ɪ/" or "Short i". Infer it from the card (the big phonetic symbol and/or the main spelling letter).
+2. Create ONE part per spelling group, in printed order: the main spelling first, then each alternate group after the "*****".
+3. The FIRST part's `label` = a spoken English announcement of the sound, e.g. "The short i sound." (a natural phrase a teacher would say, NOT a bare letter). Every OTHER part's `label` = that group's spelling header exactly as printed, e.g. "y", "e", "u", "ea", "ie".
+4. `task_type` = "phonics" for EVERY part.
+5. Each vocabulary word → one item: `text` = the word exactly as printed (keep original capitalization, e.g. "Christmas", "Wednesday", "February"), `number` = null, `speaker` = null.
+6. Do NOT create items for the spelling-group header letters, the "*****" separators, phonetic symbols, or any underline/stress marks. Only real words.
+7. `zh_instruction` = null for every part.
+8. Output STRICT JSON with EXACTLY these field names — do not rename them:
+
+{"title": "短音 /ɪ/", "parts": [{"label": "The short i sound.", "task_type": "phonics", "zh_instruction": null, "items": [{"number": null, "text": "big", "speaker": null}, {"number": null, "text": "chip", "speaker": null}]}, {"label": "y", "task_type": "phonics", "zh_instruction": null, "items": [{"number": null, "text": "physical", "speaker": null}]}]}
+
+Only output the JSON object, no markdown fences, no extra keys."#;
+
+/// 返回 6 个内置模板。
 pub fn builtin_templates() -> Vec<PromptTemplate> {
     vec![
         PromptTemplate {
@@ -157,6 +178,12 @@ pub fn builtin_templates() -> Vec<PromptTemplate> {
             id: "dialogue".into(),
             name: "对话分角色".into(),
             content: DIALOGUE_CONTENT.to_string(),
+            builtin: true,
+        },
+        PromptTemplate {
+            id: "phonics".into(),
+            name: "音标单词卡".into(),
+            content: PHONICS_CONTENT.to_string(),
             builtin: true,
         },
     ]
@@ -324,7 +351,7 @@ fn make_custom_id(name: &str, existing_custom: &[CustomEntry]) -> String {
     };
 
     // 若与内置 id 冲突,加 _custom 后缀
-    let builtin_ids = ["standard", "general", "words", "bilingual", "dialogue"];
+    let builtin_ids = ["standard", "general", "words", "bilingual", "dialogue", "phonics"];
     if builtin_ids.contains(&base.as_str()) {
         format!("{base}_custom")
     } else {
@@ -339,9 +366,9 @@ mod tests {
     use super::*;
 
     #[test]
-    fn builtin_templates_returns_five() {
+    fn builtin_templates_returns_six() {
         let templates = builtin_templates();
-        assert_eq!(templates.len(), 5, "应有 5 个内置预设");
+        assert_eq!(templates.len(), 6, "应有 6 个内置预设");
     }
 
     #[test]
@@ -353,6 +380,25 @@ mod tests {
         assert!(ids.contains(&"words"));
         assert!(ids.contains(&"bilingual"));
         assert!(ids.contains(&"dialogue"));
+        assert!(ids.contains(&"phonics"));
+    }
+
+    #[test]
+    fn select_content_phonics_targets_vowel_sound_and_groups() {
+        let templates = builtin_templates();
+        let content = select_content(&templates, "phonics");
+        assert!(
+            content.contains("phonics") || content.contains("vowel"),
+            "phonics 模板应说明是元音音标卡提取"
+        );
+        assert!(
+            content.contains("spelling"),
+            "phonics 模板应提到按拼写分组"
+        );
+        assert!(
+            content.contains("\"phonics\""),
+            "phonics 模板 JSON 示例 task_type 应为 phonics"
+        );
     }
 
     #[test]
