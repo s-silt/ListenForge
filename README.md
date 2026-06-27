@@ -33,7 +33,8 @@ ListenForge is a **Windows desktop tool** for **primary-school English teachers 
 | ✏️ 可编辑:改句子、调重复/停顿、勾选要不要读 | Editable: text, repeat, pause, toggle |
 | 🗣️ 7 种真人感声音(英式/美式/儿童/中文女声) | 7 natural voices (UK/US/child/Chinese) |
 | 🎭 对话分角色朗读(老师声 / 学生声 自动切换) | Dialogue roles (teacher/student voices) |
-| 📋 5 种提取模板可切换 + 自定义 | 5 switchable + custom templates |
+| 🔤 音标单词卡:按拼写分组朗读元音单词(自然拼读) | Phonics word cards: vowel words grouped by spelling |
+| 📋 6 种提取模板可切换 + 自定义 | 6 switchable + custom templates |
 | 🌐 中英双语界面 | Bilingual UI (中文 / English) |
 | 🎵 导出完整 MP3 + 分大题 MP3 | Full + per-part MP3 export |
 
@@ -102,6 +103,7 @@ ListenForge is a **Windows desktop tool** for **primary-school English teachers 
 | **单词听写** / Words | 逐词朗读,适合默写 |
 | **中英都读** / Bilingual | 中文说明 + 英文都读,中英对照 |
 | **对话分角色** / Dialogue | 对话型材料,老师声 / 学生声交替读 |
+| **音标单词卡** / Phonics | 元音音标卡,按拼写分组提取单词,开头报一次音标后逐词朗读 |
 
 ### 需要现成模板?去 `templates/` 找 / Ready-made templates
 仓库根目录的 **`templates/`** 文件夹里,每个模板一个 `.txt`(中英文件名)。
@@ -125,7 +127,7 @@ AI 必须输出严格符合这个结构(字段名**不能改**):
   "parts": [
     {
       "label": "大题标题,如 Part One. Listen and choose.",
-      "task_type": "listen_and_choose | listen_and_number | listen_and_judge | listen_and_write | listen_and_circle | listen_passage | unknown",
+      "task_type": "listen_and_choose | listen_and_number | listen_and_judge | listen_and_write | listen_and_circle | listen_passage | phonics | unknown",
       "zh_instruction": "中文说明或 null",
       "items": [
         { "number": "题号整数或 null", "text": "要朗读的英文", "speaker": "说话人 A/B 或 null" }
@@ -140,7 +142,7 @@ AI 必须输出严格符合这个结构(字段名**不能改**):
 我在用一个叫 ListenForge 的工具,它把英语练习卷自动转成听力 MP3:把练习卷内容 + 一段"提取指令(模板)"发给你,你按指令输出一个固定结构的 JSON,工具再把 JSON 转成音频。
 
 JSON 结构必须严格如下(字段名不能改、不能多不能少):
-{ "title": "字符串或null", "parts": [ { "label": "大题标题", "task_type": "listen_and_choose|listen_and_number|listen_and_judge|listen_and_write|listen_and_circle|listen_passage|unknown", "zh_instruction": "中文说明或null", "items": [ { "number": 题号整数或null, "text": "要朗读的英文", "speaker": "说话人A/B或null" } ] } ] }
+{ "title": "字符串或null", "parts": [ { "label": "大题标题", "task_type": "listen_and_choose|listen_and_number|listen_and_judge|listen_and_write|listen_and_circle|listen_passage|phonics|unknown", "zh_instruction": "中文说明或null", "items": [ { "number": 题号整数或null, "text": "要朗读的英文", "speaker": "说话人A/B或null" } ] } ] }
 
 请帮我写一段【英文】的"提取指令(模板)",用于这个场景:
 【在这里描述你的需求,例如:从初中完形填空卷提取短文整段朗读 / 从对话题按说话人分角色 / 只提取划线的句子 ……】
